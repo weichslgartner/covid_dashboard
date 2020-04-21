@@ -8,11 +8,12 @@ from bokeh.plotting import figure
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
 from bokeh.palettes import brewer
-from math import log10, ceil
+from math import log, log10, ceil
 from bokeh.tile_providers import CARTODBPOSITRON_RETINA, CARTODBPOSITRON, get_provider
 from bokeh.tile_providers import get_provider, Vendors
+from pyproj import Transformer
 
-df = pd.read_csv('data/confirmed.csv')
+df = pd.read_csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv')
 countries = [(x, x) for x in sorted(df['Country/Region'].unique())]
 max_infected = 10000
 y_axis_type = "linear"
@@ -127,17 +128,23 @@ radio_button_group = RadioButtonGroup(
 tile_provider = get_provider(Vendors.CARTODBPOSITRON_RETINA)
 
 BOUND = 9_400_000
+transformer = Transformer.from_crs("epsg:4326", "epsg:3857")
+x,y =transformer.transform(df['Lat'].values, df['Long'].values)
+#circle_source = ColumnDataSource(dict(longitude=df["Long"].values, latitude=df["Lat"].values, sizes=np.ones(len(df))*10 ))
+circle_source = ColumnDataSource(dict(x=x, y=y, sizes=df[df.columns[-1]].apply(lambda x: ceil(log(x)*4) if x>1 else 1), country=df['Country/Region'],province=df['Province/State'].fillna('')))
+
+TOOLTIPS = [
+    ("(x,y)", "($x, $y)"),
+    ("country", "@country"),
+    ("province", "@province")
+
+]
 world_map = figure(width=WIDTH, height=400, x_range=(-BOUND, BOUND), y_range=(-BOUND, BOUND),
-                   x_axis_type="mercator", y_axis_type="mercator")
-circle_dict = {}
-for index, df_row in df.iterrows():
-    c_size = int(df_row[df.columns[-1]] / 1000)
-    if c_size > 0:
-        pass
-circle_source = ColumnDataSource(dict(x=df["Long"].values, y=df["Lat"].values, sizes=np.ones(len(df))*10 ))
+                   x_axis_type="mercator", y_axis_type="mercator",tooltips=TOOLTIPS)
 
 # world_map.axis.visible = False
 world_map.add_tile(tile_provider)
+
 world_map.circle(x='x', y='y', size='sizes', source=circle_source, fill_color="red", fill_alpha=0.8)
 print(circle_source.data)
 layout = row(column(tab_plot, world_map), column(radio_button_group, multi_select), width=800)
