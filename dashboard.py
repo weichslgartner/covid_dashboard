@@ -39,6 +39,7 @@ active_y_axis_type = "linear"
 active_df = df_confirmed
 active_prefix = 'confirmed'
 active_tab = 0
+active_window_size = 7
 
 
 def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
@@ -63,7 +64,7 @@ def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
 def get_dict_from_df(df: pd.DataFrame,country_list : List[str], prefix : str):
     new_dict = {}
     for country in country_list:
-        absolute_raw, absolute_rolling,  delta_raw, delta_rolling = get_lines(df,country)
+        absolute_raw, absolute_rolling,  delta_raw, delta_rolling = get_lines(df,country,active_window_size)
         new_dict[f"{country}_{prefix}_{total_suff}_{raw}"] = absolute_raw
         new_dict[f"{country}_{prefix}_{total_suff}_{rolling}"] = absolute_rolling
         new_dict[f"{country}_{prefix}_{delta_suff}_{raw}"] = delta_raw
@@ -89,7 +90,7 @@ def generate_plot(source):
             infected_numbers_new.append(max(source.data[k]))
         elif f"{total_suff}_{raw}" in k:
             infected_numbers_absolute.append(max(source.data[k]))
-    palette = brewer['YlGnBu'][5]
+    palette = brewer['Set3'][11]
     color_n = 0
     max_infected_new = max(infected_numbers_new)
     y_range = (-1, int(max_infected_new * 1.1))
@@ -103,7 +104,10 @@ def generate_plot(source):
         y_range = (0.1, 10 ** ceil(log10(y_range[1])))
     p_absolute = figure(title=f"{active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                         background_fill_color='#efefef', y_axis_type=active_y_axis_type)
+
     for vals in source.data.keys():
+        tokenz = vals.split('_')
+        name = f"{tokenz[0]} ({tokenz[-1]})"
         if vals == 'x' in vals:
             continue
 
@@ -112,15 +116,19 @@ def generate_plot(source):
         if raw in vals:
             line_dash = 'dashed'
             alpha = 0.7
-            color_n += 1 % len(palette)
+            color_n += 1
+            color_n %=(len(palette)-1)
         if total_suff in vals:
             p_absolute.line('x', vals, source=source, line_dash=line_dash, color=palette[color_n], alpha=alpha,
-                    line_width=1.5)
+                    line_width=1.5, legend_label=name)
 
         else:
             p_new.line('x', vals, source=source, line_dash=line_dash, color=palette[color_n], alpha=alpha,
-                       line_width=1.5)
-
+                       line_width=1.5,legend_label=name)
+    p_absolute.legend.location = "top_left"
+    p_absolute.legend.click_policy = "hide"
+    p_new.legend.location = "top_left"
+    p_new.legend.click_policy = "hide"
     tab1 = Panel(child=p_new, title=f"{active_prefix} (new)")
     tab2 = Panel(child=p_absolute, title=f"{active_prefix} (absolute)")
     tabs = Tabs(tabs=[tab1, tab2])
@@ -187,6 +195,12 @@ def update_tab(attr, old, new):
     print("activae tab", tab_plot.active)
     active_tab = tab_plot.active
 
+def update_window_size(attr, old, new):
+    global active_window_size
+    print("activae tab", tab_plot.active)
+    active_window_size = slider.value
+    update_data('', '', '')
+
 
 source = generate_source()
 tab_plot = generate_plot(source)
@@ -201,13 +215,14 @@ radio_button_group_df = RadioButtonGroup(
     labels=["Confirmed", "Death", "Recovered"], active=0)
 radio_button_group_df.on_click(update_data_frame)
 
-
+slider = Slider(start=1, end=30, value=7, step=1, title="Window Size for rolling average")
+slider.on_change('value',update_window_size)
 
 
 
 world_map= create_world_map()
 
-layout = row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_scale, multi_select), width=800)
+layout = row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_scale, slider,multi_select), width=800)
 
 # range bounds supplied in web mercator coordinates
 

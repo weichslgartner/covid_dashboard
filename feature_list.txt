@@ -1,0 +1,10 @@
+x remember tab
+x add deaths
+per capita
+x rolling window editable
+tooltip graph
+highlight current selection on map
+fix world map offsets
+fix color for country
+integrate into web app
+logarithmic/linear scaling for world map
