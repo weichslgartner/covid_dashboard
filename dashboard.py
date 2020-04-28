@@ -3,7 +3,7 @@ import numpy as np
 import colorcet as cc
 from typing import List
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, TextInput
-from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup
+from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup, Div
 from bokeh.plotting import figure
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
@@ -182,7 +182,7 @@ def update_data(attrname, old, new):
     print(f"new value {country_list}, old {old} , new {new}, attrname{attrname}")
     new_dict = get_dict_from_df(active_df,country_list,active_prefix)
     source.data = new_dict
-    layout.children[0].children[0] = generate_plot(source)
+    layout.children[0].children[0].children[0] = generate_plot(source)
 
 
 def update_scale_button(new):
@@ -191,7 +191,7 @@ def update_scale_button(new):
         active_y_axis_type = 'log'
     else:
         active_y_axis_type = 'linear'
-    layout.children[0].children[0] = generate_plot(source)
+    layout.children[0].children[0].children[0] = generate_plot(source)
 
 def update_average_button(new):
     global active_average
@@ -254,10 +254,11 @@ radio_button_average.on_click(update_average_button)
 
 
 world_map= create_world_map()
+div = Div(text="""Covid-19 Dashboard created by Andreas Weichslgartner in April 2020 with python, bokeh, pandas, numpy, pyproj, and colorcet. Source Code can be found at <a href="https://github.com/weichslgartner/covid_dashboard/">Github</a>.""",
+width=1600, height=10, align='center')
+layout = column(row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_scale, slider,radio_button_average,multi_select), width=800), div)
 
-layout = row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_scale, slider,radio_button_average,multi_select), width=800)
 
-# range bounds supplied in web mercator coordinates
 
 curdoc().add_root(layout)
 curdoc().title = "Bokeh Covid-19 Dashboard"
