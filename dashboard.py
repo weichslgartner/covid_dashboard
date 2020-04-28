@@ -11,7 +11,6 @@ from bokeh.io import curdoc
 from bokeh.layouts import column, row
 from bokeh.palettes import brewer
 from math import log, log10, ceil
-from bokeh.tile_providers import CARTODBPOSITRON_RETINA, CARTODBPOSITRON, get_provider
 from bokeh.tile_providers import get_provider, Vendors
 from pyproj import Transformer
 
