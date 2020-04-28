@@ -1,21 +1,23 @@
 import pandas as pd
 import numpy as np
-from typing import List
 import colorcet as cc
+from typing import List
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, TextInput
 from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup
 from bokeh.plotting import figure
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
-from math import log, log10, ceil
 from bokeh.tile_providers import get_provider, Vendors
+from math import log, log10, ceil
 from pyproj import Transformer
+
+BACKGROUND_COLOR = '#F5F5F5'
 
 EPSILON = 0.1
 WIDTH = 1000
 
 total_suff  = "total"
-delta_suff = "delta"
+delta_suff = 'delta'
 raw = 'raw'
 rolling = 'rolling'
 
@@ -82,6 +84,7 @@ def generate_plot(source):
     keys = source.data.keys()
     infected_numbers_new = []
     infected_numbers_absolute = []
+
     for k in keys:
         if f"{delta_suff}_{raw}" in k:
             infected_numbers_new.append(max(source.data[k]))
@@ -96,17 +99,24 @@ def generate_plot(source):
 
     if active_y_axis_type == 'log':
         y_range = (0.1, y_log_max)
+
+    slected_keys = [x for x in source.data.keys() if total_suff in x or 'x' == x]
+    TOOLTIPS = [(f"{x}", f"@{x}") for x in slected_keys]
+
     p_new = figure(title=f"{active_prefix} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                   background_fill_color='#F5F5F5', y_axis_type=active_y_axis_type)
+                   background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=TOOLTIPS)
     max_infected_numbers_absolute = max(infected_numbers_absolute)
     y_range = (-1, int(max_infected_numbers_absolute * 1.1))
     if y_range[1] > 0:
         y_log_max = 10 ** ceil(log10(y_range[1]))
     if active_y_axis_type == 'log':
-
         y_range = (0.1, y_log_max)
+
+    slected_keys = [x for x in source.data.keys() if delta_suff in x or 'x' == x]
+    TOOLTIPS = [(f"{x}", f"@{x}") for x in slected_keys]
+    print(TOOLTIPS)
     p_absolute = figure(title=f"{active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                        background_fill_color='#F5F5F5', y_axis_type=active_y_axis_type)
+                        background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=TOOLTIPS)
 
     for vals in source.data.keys():
 
@@ -121,6 +131,7 @@ def generate_plot(source):
             line_dash = 'dashed'
             alpha = 0.6
         if total_suff in vals:
+
             p_absolute.line('x', vals, source=source, line_dash=line_dash, color=color, alpha=alpha,
                     line_width=1.5, legend_label=name)
         else:
@@ -209,7 +220,7 @@ def update_tab(attr, old, new):
     active_tab = tab_plot.active
 
 
-multi_select = MultiSelect(title="Option:", value=['Germany'],
+multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=['Germany'],
                            options=countries, height=700)
 multi_select.on_change('value', update_data)
 tab_plot.on_change('active',update_tab)
@@ -233,5 +244,4 @@ layout = row(column(tab_plot, world_map), column(radio_button_group_df,radio_but
 # range bounds supplied in web mercator coordinates
 
 curdoc().add_root(layout)
-print(layout.children)
-curdoc().title = "Covid-19"
+curdoc().title = "Bokeh Covid-19 Dashboard"
