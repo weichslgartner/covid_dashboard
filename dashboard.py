@@ -1,15 +1,12 @@
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 from typing import List
 import colorcet as cc
-from bokeh.io import push_notebook, show, output_notebook
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, TextInput
 from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup
 from bokeh.plotting import figure
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
-from bokeh.palettes import brewer
 from math import log, log10, ceil
 from bokeh.tile_providers import get_provider, Vendors
 from pyproj import Transformer
