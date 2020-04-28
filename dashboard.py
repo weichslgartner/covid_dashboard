@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import List
+import colorcet as cc
 from bokeh.io import push_notebook, show, output_notebook
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, TextInput
 from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup
@@ -31,9 +32,9 @@ df_confirmed = pd.read_csv(f"{base_url}{confirmed}")
 df_deaths = pd.read_csv(f"{base_url}{deaths}")
 df_recovered = pd.read_csv(f"{base_url}{recovered}")
 
-countries = [(x, x) for x in sorted(df_deaths['Country/Region'].unique())]
-
-
+unique_countries = df_confirmed['Country/Region'].unique()
+countries = [(x, x) for x in sorted(unique_countries)]
+color_dict = dict(zip(unique_countries, cc.b_glasbey_bw[:len(unique_countries)]))
 
 active_y_axis_type = "linear"
 active_df = df_confirmed
@@ -90,40 +91,44 @@ def generate_plot(source):
             infected_numbers_new.append(max(source.data[k]))
         elif f"{total_suff}_{raw}" in k:
             infected_numbers_absolute.append(max(source.data[k]))
-    palette = brewer['Set3'][11]
-    color_n = 0
+
     max_infected_new = max(infected_numbers_new)
     y_range = (-1, int(max_infected_new * 1.1))
+    y_log_max = 1
+    if y_range[1] > 0:
+        y_log_max = 10 ** ceil(log10(y_range[1]))
+
     if active_y_axis_type == 'log':
-        y_range = (0.1, 10 ** ceil(log10(y_range[1])))
+        y_range = (0.1, y_log_max)
     p_new = figure(title=f"{active_prefix} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                   background_fill_color='#efefef', y_axis_type=active_y_axis_type)
+                   background_fill_color='#F5F5F5', y_axis_type=active_y_axis_type)
     max_infected_numbers_absolute = max(infected_numbers_absolute)
     y_range = (-1, int(max_infected_numbers_absolute * 1.1))
+    if y_range[1] > 0:
+        y_log_max = 10 ** ceil(log10(y_range[1]))
     if active_y_axis_type == 'log':
-        y_range = (0.1, 10 ** ceil(log10(y_range[1])))
+
+        y_range = (0.1, y_log_max)
     p_absolute = figure(title=f"{active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                        background_fill_color='#efefef', y_axis_type=active_y_axis_type)
+                        background_fill_color='#F5F5F5', y_axis_type=active_y_axis_type)
 
     for vals in source.data.keys():
-        tokenz = vals.split('_')
-        name = f"{tokenz[0]} ({tokenz[-1]})"
+
         if vals == 'x' in vals:
             continue
-
+        tokenz = vals.split('_')
+        name = f"{tokenz[0]} ({tokenz[-1]})"
+        color = color_dict[tokenz[0]]
         line_dash = 'solid'
         alpha = 1
         if raw in vals:
             line_dash = 'dashed'
-            alpha = 0.7
-            color_n += 1
-            color_n %=(len(palette)-1)
+            alpha = 0.6
         if total_suff in vals:
-            p_absolute.line('x', vals, source=source, line_dash=line_dash, color=palette[color_n], alpha=alpha,
+            p_absolute.line('x', vals, source=source, line_dash=line_dash, color=color, alpha=alpha,
                     line_width=1.5, legend_label=name)
-
         else:
-            p_new.line('x', vals, source=source, line_dash=line_dash, color=palette[color_n], alpha=alpha,
+            p_new.line('x', vals, source=source, line_dash=line_dash, color=color, alpha=alpha,
                        line_width=1.5,legend_label=name)
     p_absolute.legend.location = "top_left"
     p_absolute.legend.click_policy = "hide"
@@ -152,7 +157,7 @@ def create_world_map():
         ("province", "@province")
 
     ]
-    world_map = figure(width=WIDTH, height=400, x_range=(-BOUND, BOUND), y_range=(-BOUND, BOUND),
+    world_map = figure(width=WIDTH, height=400, x_range=(-BOUND, BOUND), y_range=(-10_000_000, 12_000_000),
                        x_axis_type="mercator", y_axis_type="mercator", tooltips=TOOLTIPS)
     # world_map.axis.visible = False
     world_map.add_tile(tile_provider)
@@ -190,24 +195,29 @@ def update_data_frame(new):
     update_data('', '', new)
     #layout.children[0].children[0] = generate_plot(source)
 
-def update_tab(attr, old, new):
-    global active_tab
-    print("activae tab", tab_plot.active)
-    active_tab = tab_plot.active
 
 def update_window_size(attr, old, new):
     global active_window_size
-    print("activae tab", tab_plot.active)
+    print("activate tab", tab_plot.active)
     active_window_size = slider.value
     update_data('', '', '')
 
 
 source = generate_source()
 tab_plot = generate_plot(source)
-tab_plot.on_change('active',update_tab)
+
+
+def update_tab(attr, old, new):
+    global active_tab,tab_plot
+    print("activate tab", tab_plot.active)
+    active_tab = tab_plot.active
+
+
 multi_select = MultiSelect(title="Option:", value=['Germany'],
                            options=countries, height=700)
 multi_select.on_change('value', update_data)
+tab_plot.on_change('active',update_tab)
+
 radio_button_group_scale = RadioButtonGroup(
     labels=["Logarithmic", "Linear"], active=1)
 radio_button_group_scale.on_click(update_scale_button)
