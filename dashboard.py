@@ -34,6 +34,7 @@ unique_countries = df_confirmed['Country/Region'].unique()
 countries = [(x, x) for x in sorted(unique_countries)]
 color_dict = dict(zip(unique_countries, cc.b_glasbey_bw[:len(unique_countries)]))
 
+active_average = 'mean'
 active_y_axis_type = "linear"
 active_df = df_confirmed
 active_prefix = 'confirmed'
@@ -49,11 +50,16 @@ def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
     :param rolling_window: size of the window for the rolling average
     :return:
     """
+    avg_fun = lambda x: x.mean()
+    if active_average == 'median':
+        avg_fun = lambda x: np.median(x)
+
+
     df_sub = df[df['Country/Region'] == country]
     absolute = df_sub[df_sub.columns[4:]].sum(axis=0).to_frame(name='sum')
-    absolute_rolling =  absolute.rolling(window=rolling_window, axis=0).mean().fillna(0)
+    absolute_rolling =  absolute.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
     new_cases = absolute.diff(axis=0).fillna(0)
-    new_cases_rolling = new_cases.rolling(window=rolling_window, axis=0).mean().fillna(0)
+    new_cases_rolling = new_cases.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
     return np.ravel(absolute.replace(0, EPSILON).values), \
            np.ravel(absolute_rolling.replace(0, EPSILON).values), \
            np.ravel(new_cases.replace(0, EPSILON).values), \
@@ -114,7 +120,6 @@ def generate_plot(source):
 
     slected_keys = [x for x in source.data.keys() if delta_suff in x or 'x' == x]
     TOOLTIPS = [(f"{x}", f"@{x}") for x in slected_keys]
-    print(TOOLTIPS)
     p_absolute = figure(title=f"{active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                         background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=TOOLTIPS)
 
@@ -188,6 +193,15 @@ def update_scale_button(new):
         active_y_axis_type = 'linear'
     layout.children[0].children[0] = generate_plot(source)
 
+def update_average_button(new):
+    global active_average
+    if (new == 0):
+        active_average = 'mean'
+    else:
+        active_average = 'median'
+    update_data('', '', new)
+
+
 def update_data_frame(new):
     global active_df, source, active_prefix
     if (new == 0):
@@ -234,12 +248,14 @@ radio_button_group_df.on_click(update_data_frame)
 
 slider = Slider(start=1, end=30, value=7, step=1, title="Window Size for rolling average")
 slider.on_change('value',update_window_size)
-
+radio_button_average = RadioButtonGroup(
+    labels=["Mean", "Median"], active=0)
+radio_button_average.on_click(update_average_button)
 
 
 world_map= create_world_map()
 
-layout = row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_scale, slider,multi_select), width=800)
+layout = row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_scale, slider,radio_button_average,multi_select), width=800)
 
 # range bounds supplied in web mercator coordinates
 
