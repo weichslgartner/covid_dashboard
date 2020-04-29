@@ -2,9 +2,9 @@ x remember tab
 x add deaths
 per capita
 x rolling window editable
-tooltip graph
+x tooltip graph
 highlight current selection on map
-fix world map offsets
-fix color for country
-integrate into web app
-logarithmic/linear scaling for world map
+x fix world map offsets
+x fix color for country
+x integrate into web app
+x logarithmic/linear scaling for world map
