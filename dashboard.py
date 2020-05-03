@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import colorcet as cc
 from typing import List
-from bokeh.models import ColumnDataSource, MultiSelect, Slider, TextInput
+from bokeh.models import ColumnDataSource, MultiSelect, Slider
 from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup, Div
 from bokeh.plotting import figure
 from bokeh.io import curdoc
@@ -16,26 +16,31 @@ BACKGROUND_COLOR = '#F5F5F5'
 EPSILON = 0.1
 WIDTH = 1000
 
-total_suff  = "total"
-delta_suff = 'delta'
+total_suff  = "cumulative"
+delta_suff = 'daily'
 raw = 'raw'
 rolling = 'rolling'
 
+# urls for hopkins data
 base_url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/'
 confirmed =  'time_series_covid19_confirmed_global.csv'
 deaths = 'time_series_covid19_deaths_global.csv'
 recovered = 'time_series_covid19_recovered_global.csv'
 
+# load data directly from github to dataframes
 df_confirmed = pd.read_csv(f"{base_url}{confirmed}")
 df_deaths = pd.read_csv(f"{base_url}{deaths}")
 df_recovered = pd.read_csv(f"{base_url}{recovered}")
 
+# create a constant color for each country
 unique_countries = df_confirmed['Country/Region'].unique()
 countries = [(x, x) for x in sorted(unique_countries)]
 color_dict = dict(zip(unique_countries, cc.b_glasbey_bw[:len(unique_countries)]))
 
+
+# global variables which can be controlled by interactive bokeh elements
 active_average = 'mean'
-active_y_axis_type = "linear"
+active_y_axis_type = 'linear'
 active_df = df_confirmed
 active_prefix = 'confirmed'
 active_tab = 0
@@ -44,17 +49,15 @@ active_window_size = 7
 
 def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
     """
-    generates
+    gets the raw values for a specific country from the given dataframe
     :param df: dataframe to fetch the data from (one out of infected, deaths, recovered)
     :param country: name of the country to get the data for
     :param rolling_window: size of the window for the rolling average
-    :return:
+    :return: numpy arrays for daily cases and cumulative cases, both raw and with sliding window averaging
     """
     avg_fun = lambda x: x.mean()
     if active_average == 'median':
         avg_fun = lambda x: np.median(x)
-
-
     df_sub = df[df['Country/Region'] == country]
     absolute = df_sub[df_sub.columns[4:]].sum(axis=0).to_frame(name='sum')
     absolute_rolling =  absolute.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
@@ -67,6 +70,13 @@ def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
 
 
 def get_dict_from_df(df: pd.DataFrame,country_list : List[str], prefix : str):
+    """
+    returns the needed data in a dict
+    :param df: dataframe to fetch the data
+    :param country_list: list of countries for which the data should be fetched
+    :param prefix: which data should be fetched, confirmed, deaths or recovered (refers to the dataframe)
+    :return: dict with for keys
+    """
     new_dict = {}
     for country in country_list:
         absolute_raw, absolute_rolling,  delta_raw, delta_rolling = get_lines(df,country,active_window_size)
@@ -79,12 +89,22 @@ def get_dict_from_df(df: pd.DataFrame,country_list : List[str], prefix : str):
 
 
 def generate_source():
+    """
+    initialize the data source with Germany
+    :return:
+    """
     new_dict = get_dict_from_df(active_df,['Germany'],active_prefix)
     source = ColumnDataSource(data=new_dict)
     return source
 
 
-def generate_plot(source):
+def generate_plot(source : ColumnDataSource):
+    """
+    do the plotting based on interactive elements
+    :param source: data source with the selected countries and the selected kind of data (confirmed, deaths, or
+    recovered)
+    :return: the plot layout in a tab
+    """
     global active_y_axis_type, active_tab
     print(active_y_axis_type)
     keys = source.data.keys()
@@ -102,12 +122,11 @@ def generate_plot(source):
     y_log_max = 1
     if y_range[1] > 0:
         y_log_max = 10 ** ceil(log10(y_range[1]))
-
     if active_y_axis_type == 'log':
         y_range = (0.1, y_log_max)
 
-    slected_keys = [x for x in source.data.keys() if total_suff in x or 'x' == x]
-    TOOLTIPS = [(f"{x}", f"@{x}") for x in slected_keys]
+    slected_keys = [x for x in source.data.keys() if delta_suff  in x or 'x' == x]
+    TOOLTIPS = generate_tool_tips(slected_keys)
 
     p_new = figure(title=f"{active_prefix} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                    background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=TOOLTIPS)
@@ -118,8 +137,8 @@ def generate_plot(source):
     if active_y_axis_type == 'log':
         y_range = (0.1, y_log_max)
 
-    slected_keys = [x for x in source.data.keys() if delta_suff in x or 'x' == x]
-    TOOLTIPS = [(f"{x}", f"@{x}") for x in slected_keys]
+    slected_keys = [x for x in source.data.keys() if total_suff in x or 'x' == x]
+    TOOLTIPS = generate_tool_tips(slected_keys)
     p_absolute = figure(title=f"{active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                         background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=TOOLTIPS)
 
@@ -155,6 +174,10 @@ def generate_plot(source):
     return tabs
 
 
+def generate_tool_tips(slected_keys):
+    return [(f"{x.split('_')[0]} ({x.split('_')[-1]})", f"@{x}{{(0,0)}}") for x in slected_keys]
+
+
 def create_world_map():
     BOUND = 9_400_000
     tile_provider = get_provider(Vendors.CARTODBPOSITRON_RETINA)
@@ -186,7 +209,7 @@ def update_data(attrname, old, new):
 
 
 def update_scale_button(new):
-    global active_y_axis_type, source
+    global layout,active_y_axis_type, source
     if (new == 0):
         active_y_axis_type = 'log'
     else:
