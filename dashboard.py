@@ -11,10 +11,10 @@ from bokeh.tile_providers import get_provider, Vendors
 from math import log, log10, ceil
 from pyproj import Transformer
 
-BACKGROUND_COLOR = '#F5F5F5'
-
-EPSILON = 0.1
-WIDTH = 1000
+BACKGROUND_COLOR = '#F5F5F5' # greyish bg color
+BOUND = 9_400_000 # bound for world map
+EPSILON = 0.1 # small number to prevent division by zero
+WIDTH = 1000 # width in pixels of big element
 
 total_suff  = "cumulative"
 delta_suff = 'daily'
@@ -31,6 +31,7 @@ recovered = 'time_series_covid19_recovered_global.csv'
 df_confirmed = pd.read_csv(f"{base_url}{confirmed}")
 df_deaths = pd.read_csv(f"{base_url}{deaths}")
 df_recovered = pd.read_csv(f"{base_url}{recovered}")
+df_population = pd.read_csv('data/population.csv')
 
 # create a constant color for each country
 unique_countries = df_confirmed['Country/Region'].unique()
@@ -45,6 +46,7 @@ active_df = df_confirmed
 active_prefix = 'confirmed'
 active_tab = 0
 active_window_size = 7
+active_per_capita = 'total'
 
 
 def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
@@ -63,10 +65,17 @@ def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
     absolute_rolling =  absolute.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
     new_cases = absolute.diff(axis=0).fillna(0)
     new_cases_rolling = new_cases.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
-    return np.ravel(absolute.replace(0, EPSILON).values), \
-           np.ravel(absolute_rolling.replace(0, EPSILON).values), \
-           np.ravel(new_cases.replace(0, EPSILON).values), \
-           np.ravel(new_cases_rolling.replace(0, EPSILON).values)
+    factor = 1
+    if active_per_capita == 'per_capita':
+        pop = float(df_population[df_population['Country/Region']==country]['Population'])
+        print(pop)
+        pop /= 1e6
+        factor = 1 / pop
+        print(f"pop factor {country} {pop}")
+    return np.ravel(absolute.replace(0, EPSILON).values) * factor, \
+           np.ravel(absolute_rolling.replace(0, EPSILON).values) * factor, \
+           np.ravel(new_cases.replace(0, EPSILON).values) * factor, \
+           np.ravel(new_cases_rolling.replace(0, EPSILON).values * factor)
 
 
 def get_dict_from_df(df: pd.DataFrame,country_list : List[str], prefix : str):
@@ -94,8 +103,8 @@ def generate_source():
     :return:
     """
     new_dict = get_dict_from_df(active_df,['Germany'],active_prefix)
-    source = ColumnDataSource(data=new_dict)
-    return source
+    new_source = ColumnDataSource(data=new_dict)
+    return new_source
 
 
 def generate_plot(source : ColumnDataSource):
@@ -126,10 +135,10 @@ def generate_plot(source : ColumnDataSource):
         y_range = (0.1, y_log_max)
 
     slected_keys = [x for x in source.data.keys() if delta_suff  in x or 'x' == x]
-    TOOLTIPS = generate_tool_tips(slected_keys)
+    tooltips = generate_tool_tips(slected_keys)
 
     p_new = figure(title=f"{active_prefix} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                   background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=TOOLTIPS)
+                   background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=tooltips)
     max_infected_numbers_absolute = max(infected_numbers_absolute)
     y_range = (-1, int(max_infected_numbers_absolute * 1.1))
     if y_range[1] > 0:
@@ -138,9 +147,9 @@ def generate_plot(source : ColumnDataSource):
         y_range = (0.1, y_log_max)
 
     slected_keys = [x for x in source.data.keys() if total_suff in x or 'x' == x]
-    TOOLTIPS = generate_tool_tips(slected_keys)
+    tooltips = generate_tool_tips(slected_keys)
     p_absolute = figure(title=f"{active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                        background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=TOOLTIPS)
+                        background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=tooltips)
 
     for vals in source.data.keys():
 
@@ -179,7 +188,7 @@ def generate_tool_tips(slected_keys):
 
 
 def create_world_map():
-    BOUND = 9_400_000
+
     tile_provider = get_provider(Vendors.CARTODBPOSITRON_RETINA)
     transformer = Transformer.from_crs("epsg:4326", "epsg:3857")
     x, y = transformer.transform(df_deaths['Lat'].values, df_deaths['Long'].values)
@@ -207,6 +216,17 @@ def update_data(attrname, old, new):
     source.data = new_dict
     layout.children[0].children[0].children[0] = generate_plot(source)
 
+
+
+
+def update_capita(new):
+    global active_per_capita
+    if (new == 0):
+        active_per_capita = 'total'
+    else:
+        active_per_capita = 'per_capita'
+    update_data('', '', '')
+    #layout.children[0].children[0].children[0] = generate_plot(source)
 
 def update_scale_button(new):
     global layout,active_y_axis_type, source
@@ -262,6 +282,9 @@ multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=['Ger
 multi_select.on_change('value', update_data)
 tab_plot.on_change('active',update_tab)
 
+radio_button_group_per_capita = RadioButtonGroup(
+    labels=["Total Cases", "Cases per Million"], active=0)
+radio_button_group_per_capita.on_click(update_capita)
 radio_button_group_scale = RadioButtonGroup(
     labels=["Logarithmic", "Linear"], active=1)
 radio_button_group_scale.on_click(update_scale_button)
@@ -279,7 +302,11 @@ radio_button_average.on_click(update_average_button)
 world_map= create_world_map()
 div = Div(text="""Covid-19 Dashboard created by Andreas Weichslgartner in April 2020 with python, bokeh, pandas, numpy, pyproj, and colorcet. Source Code can be found at <a href="https://github.com/weichslgartner/covid_dashboard/">Github</a>.""",
 width=1600, height=10, align='center')
-layout = column(row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_scale, slider,radio_button_average,multi_select), width=800), div)
+layout = column(row(column(tab_plot, world_map), column(radio_button_group_df,radio_button_group_per_capita,
+                                                        radio_button_group_scale, slider,radio_button_average,
+                                                        multi_select),
+                                                        width=800),
+                div)
 
 
 
