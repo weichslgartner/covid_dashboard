@@ -19,6 +19,7 @@ WIDTH = 1000 # width in pixels of big element
 total_suff  = "cumulative"
 delta_suff = 'daily'
 raw = 'raw'
+trend = 'trend'
 rolling = 'rolling'
 
 # urls for hopkins data
@@ -48,6 +49,15 @@ active_tab = 0
 active_window_size = 7
 active_per_capita = 'total'
 
+def calc_trend(y : pd.Series, window_size: int):
+    x = list(range(0, len(y)))
+    z = np.polyfit(x[-window_size:], np.ravel(y.values[-window_size:]), 1)
+    p = np.poly1d(z)
+    res = np.empty(len(y))
+    res[:] = np.nan
+    res[-window_size:] = p(x[-window_size:])
+    return res
+
 
 def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
     """
@@ -63,19 +73,22 @@ def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
     df_sub = df[df['Country/Region'] == country]
     absolute = df_sub[df_sub.columns[4:]].sum(axis=0).to_frame(name='sum')
     absolute_rolling =  absolute.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
+    absolute_trend =calc_trend(absolute,rolling_window)
     new_cases = absolute.diff(axis=0).fillna(0)
     new_cases_rolling = new_cases.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
+    new_cases_trend = calc_trend(new_cases, rolling_window)
     factor = 1
     if active_per_capita == 'per_capita':
         pop = float(df_population[df_population['Country/Region']==country]['Population'])
         print(pop)
         pop /= 1e6
         factor = 1 / pop
-        print(f"pop factor {country} {pop}")
     return np.ravel(absolute.replace(0, EPSILON).values) * factor, \
            np.ravel(absolute_rolling.replace(0, EPSILON).values) * factor, \
+           absolute_trend * factor, \
            np.ravel(new_cases.replace(0, EPSILON).values) * factor, \
-           np.ravel(new_cases_rolling.replace(0, EPSILON).values * factor)
+           np.ravel(new_cases_rolling.replace(0, EPSILON).values * factor), \
+           new_cases_trend * factor
 
 
 def get_dict_from_df(df: pd.DataFrame,country_list : List[str], prefix : str):
@@ -88,11 +101,14 @@ def get_dict_from_df(df: pd.DataFrame,country_list : List[str], prefix : str):
     """
     new_dict = {}
     for country in country_list:
-        absolute_raw, absolute_rolling,  delta_raw, delta_rolling = get_lines(df,country,active_window_size)
+        absolute_raw, absolute_rolling, absoulte_trend,  delta_raw, delta_rolling, delta_trend = \
+            get_lines(df,country,active_window_size)
         new_dict[f"{country}_{prefix}_{total_suff}_{raw}"] = absolute_raw
         new_dict[f"{country}_{prefix}_{total_suff}_{rolling}"] = absolute_rolling
+        new_dict[f"{country}_{prefix}_{total_suff}_{trend}"] = absoulte_trend
         new_dict[f"{country}_{prefix}_{delta_suff}_{raw}"] = delta_raw
         new_dict[f"{country}_{prefix}_{delta_suff}_{rolling}"] = delta_rolling
+        new_dict[f"{country}_{prefix}_{delta_suff}_{trend}"] = delta_trend
         new_dict['x'] = list(range(0, len(delta_raw)))
     return new_dict
 
@@ -152,7 +168,7 @@ def generate_plot(source : ColumnDataSource):
                         background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=tooltips)
 
     for vals in source.data.keys():
-
+        line_width = 1.5
         if vals == 'x' in vals:
             continue
         tokenz = vals.split('_')
@@ -162,14 +178,17 @@ def generate_plot(source : ColumnDataSource):
         alpha = 1
         if raw in vals:
             line_dash = 'dashed'
-            alpha = 0.6
-        if total_suff in vals:
+            alpha = 0.5
+        if trend in vals:
+            line_width = 5
+            alpha = 0.9
 
+        if total_suff in vals:
             p_absolute.line('x', vals, source=source, line_dash=line_dash, color=color, alpha=alpha,
-                    line_width=1.5, legend_label=name)
+                    line_width=line_width, line_cap='butt', legend_label=name)
         else:
             p_new.line('x', vals, source=source, line_dash=line_dash, color=color, alpha=alpha,
-                       line_width=1.5,legend_label=name)
+                       line_width=line_width, line_cap='round', legend_label=name)
     p_absolute.legend.location = "top_left"
     p_absolute.legend.click_policy = "hide"
     p_new.legend.location = "top_left"

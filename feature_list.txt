@@ -1,8 +1,10 @@
 x remember tab
 x add deaths
-per capita
+x per capita
 x rolling window editable
 x tooltip graph
+x add trendline
+better tooltipp
 highlight current selection on map
 x fix world map offsets
 x fix color for country
