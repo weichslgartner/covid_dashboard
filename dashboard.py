@@ -50,6 +50,13 @@ active_window_size = 7
 active_per_capita = 'total'
 
 def calc_trend(y : pd.Series, window_size: int):
+    """
+    calculate a trendline (linear interpolation)
+    uses the last window of window_size of data, the rest is filled with nan
+    :param y: data to calculate the trendline from
+    :param window_size: size of the window to calculate the trendline
+    :return: numpy array with the last window_size values contain the trendline, values before are np.nan
+    """
     x = list(range(0, len(y)))
     z = np.polyfit(x[-window_size:], np.ravel(y.values[-window_size:]), 1)
     p = np.poly1d(z)
