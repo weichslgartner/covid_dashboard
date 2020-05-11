@@ -33,11 +33,29 @@ df_confirmed = pd.read_csv(f"{base_url}{confirmed}")
 df_deaths = pd.read_csv(f"{base_url}{deaths}")
 df_recovered = pd.read_csv(f"{base_url}{recovered}")
 df_population = pd.read_csv('data/population.csv')
+ws_replacement = '1'
+
+def replace_special_chars(x):
+    return x.replace(' ', ws_replacement).\
+            replace('-', ws_replacement).\
+            replace('(', ws_replacement).\
+            replace(')', ws_replacement).\
+            replace('*', ws_replacement)
+
+def revert_special_chars_replacement(x):
+    # reverts all special chracter to whitespace
+    # it is not correct, but okayish workaround use multiple encodings
+    return x.replace(ws_replacement, ' ')
 
 # create a constant color for each country
 unique_countries = df_confirmed['Country/Region'].unique()
 countries = [(x, x) for x in sorted(unique_countries)]
-color_dict = dict(zip(unique_countries, cc.b_glasbey_bw[:len(unique_countries)]))
+# tooltip seems to have problems with characters which are no ASCII letters. remove them
+unique_countries_wo_special_chars = [replace_special_chars(x) for x in unique_countries]
+color_dict = dict(zip(unique_countries_wo_special_chars,
+                      cc.b_glasbey_bw[:len(unique_countries_wo_special_chars)]
+                      )
+                  )
 
 
 # global variables which can be controlled by interactive bokeh elements
@@ -87,7 +105,6 @@ def get_lines(df : pd.DataFrame, country: str, rolling_window: int = 7):
     factor = 1
     if active_per_capita == 'per_capita':
         pop = float(df_population[df_population['Country/Region']==country]['Population'])
-        print(pop)
         pop /= 1e6
         factor = 1 / pop
     return np.ravel(absolute.replace(0, EPSILON).values) * factor, \
@@ -110,6 +127,7 @@ def get_dict_from_df(df: pd.DataFrame,country_list : List[str], prefix : str):
     for country in country_list:
         absolute_raw, absolute_rolling, absoulte_trend,  delta_raw, delta_rolling, delta_trend = \
             get_lines(df,country,active_window_size)
+        country=replace_special_chars(country)
         new_dict[f"{country}_{prefix}_{total_suff}_{raw}"] = absolute_raw
         new_dict[f"{country}_{prefix}_{total_suff}_{rolling}"] = absolute_rolling
         new_dict[f"{country}_{prefix}_{total_suff}_{trend}"] = absoulte_trend
@@ -173,13 +191,12 @@ def generate_plot(source : ColumnDataSource):
     tooltips = generate_tool_tips(slected_keys)
     p_absolute = figure(title=f"{active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                         background_fill_color=BACKGROUND_COLOR, y_axis_type=active_y_axis_type, tooltips=tooltips)
-
     for vals in source.data.keys():
         line_width = 1.5
         if vals == 'x' in vals:
             continue
         tokenz = vals.split('_')
-        name = f"{tokenz[0]} ({tokenz[-1]})"
+        name = f"{revert_special_chars_replacement(tokenz[0])} ({tokenz[-1]})"
         color = color_dict[tokenz[0]]
         line_dash = 'solid'
         alpha = 1
@@ -210,7 +227,8 @@ def generate_plot(source : ColumnDataSource):
 
 
 def generate_tool_tips(slected_keys):
-    return [(f"{x.split('_')[0]} ({x.split('_')[-1]})", f"@{x}{{(0,0)}}") for x in slected_keys]
+    return [(f"{revert_special_chars_replacement(x.split('_')[0])} ({x.split('_')[-1]})",
+             f"@{x}{{(0,0)}}") for x in slected_keys]
 
 
 def create_world_map():
@@ -237,7 +255,6 @@ def create_world_map():
 def update_data(attrname, old, new):
     global layout, active_y_axis_type
     country_list = multi_select.value
-    print(f"new value {country_list}, old {old} , new {new}, attrname{attrname}")
     new_dict = get_dict_from_df(active_df,country_list,active_prefix)
     source.data = new_dict
     layout.children[0].children[0].children[0] = generate_plot(source)
@@ -288,7 +305,6 @@ def update_data_frame(new):
 
 def update_window_size(attr, old, new):
     global active_window_size
-    print("activate tab", tab_plot.active)
     active_window_size = slider.value
     update_data('', '', '')
 
