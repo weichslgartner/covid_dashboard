@@ -241,7 +241,9 @@ class dashboard:
         tab1 = Panel(child=p_new, title=f"{self.active_prefix} (new)")
         tab2 = Panel(child=p_absolute, title=f"{self.active_prefix} (absolute)")
         tabs = Tabs(tabs=[tab1, tab2])
-        tabs.active = self.active_tab
+        if self.layout != None:
+            tabs.active = self.layout.children[0].children[0].children[0].active
+        #tabs.active = self.active_tab
         # r = p.line('x', 'new_rol', color="red", line_width=1.5, alpha=0.8)
 
         return tabs
@@ -348,9 +350,8 @@ class dashboard:
 
 
     def update_tab(self,attr, old, new):
-        global active_tab, tab_plot
-        print("activate tab", tab_plot.active)
-        self.active_tab = self.tab_plot.active
+        print(f"new tab{new}")
+        self.active_tab = new
 
     def do_layout(self):
         self.source = self.generate_source()
