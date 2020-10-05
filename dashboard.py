@@ -1,8 +1,10 @@
+from datetime import timedelta
+
 import pandas as pd
 import numpy as np
 import colorcet as cc
 from typing import List
-from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button
+from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button, DatetimeTickFormatter, HoverTool
 from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup, Div, CheckboxButtonGroup
 from bokeh.plotting import figure
 from bokeh.io import curdoc
@@ -104,7 +106,6 @@ class Dashboard:
         res[-window_size:] = p(x[-window_size:])
         return res
 
-
     def get_lines(self, df: pd.DataFrame, country: str, rolling_window: int = 7):
         """
         gets the raw values for a specific country from the given dataframe
@@ -116,6 +117,7 @@ class Dashboard:
         avg_fun = lambda x: x.mean()
         if self.active_average == 'median':
             avg_fun = lambda x: np.median(x)
+        x_date = [pd.to_datetime(df.columns[4]) + timedelta(days=x) for x in range(0, len(df.columns[4:]))]
         df_sub = df[df['Country/Region'] == country]
         absolute = df_sub[df_sub.columns[4:]].sum(axis=0).to_frame(name='sum')
         absolute_rolling = absolute.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
@@ -128,13 +130,13 @@ class Dashboard:
             pop = float(df_population[df_population['Country/Region'] == country]['Population'])
             pop /= 1e6
             factor = 1 / pop
-        return np.ravel(absolute.replace(0, EPSILON).values) * factor, \
+        return x_date, \
+               np.ravel(absolute.replace(0, EPSILON).values) * factor, \
                np.ravel(absolute_rolling.replace(0, EPSILON).values) * factor, \
                absolute_trend * factor, \
                np.ravel(new_cases.replace(0, EPSILON).values) * factor, \
                np.ravel(new_cases_rolling.replace(0, EPSILON).values * factor), \
                new_cases_trend * factor
-
 
     def get_dict_from_df(self, df: pd.DataFrame, country_list: List[str], prefix: str):
         """
@@ -146,7 +148,7 @@ class Dashboard:
         """
         new_dict = {}
         for country in country_list:
-            absolute_raw, absolute_rolling, absoulte_trend, delta_raw, delta_rolling, delta_trend = \
+            x_time, absolute_raw, absolute_rolling, absoulte_trend, delta_raw, delta_rolling, delta_trend = \
                 self.get_lines(df, country, self.active_window_size)
             country = replace_special_chars(country)
             new_dict[f"{country}_{prefix}_{total_suff}_{raw}"] = absolute_raw
@@ -155,18 +157,23 @@ class Dashboard:
             new_dict[f"{country}_{prefix}_{delta_suff}_{raw}"] = delta_raw
             new_dict[f"{country}_{prefix}_{delta_suff}_{rolling}"] = delta_rolling
             new_dict[f"{country}_{prefix}_{delta_suff}_{trend}"] = delta_trend
-            new_dict['x'] = list(range(0, len(delta_raw)))
+            new_dict['x'] = x_time  # list(range(0, len(delta_raw)))
         return new_dict
 
     @staticmethod
-    def generate_tool_tips(selected_keys):
+    def generate_tool_tips(selected_keys) -> HoverTool:
         """
         string magic for the tool tips
         :param selected_keys:
         :return:
         """
-        return [(f"{revert_special_chars_replacement(x.split('_')[0])} ({x.split('_')[-1]})",
-                 f"@{x}{{(0,0)}}") for x in selected_keys]
+
+        tooltips = [(f"{revert_special_chars_replacement(x.split('_')[0])} ({x.split('_')[-1]})",
+                     f"@{x}{{(0,0)}}") if x != 'x' else ('Date', '$x{%F}') for x in selected_keys]
+        hover = HoverTool(tooltips=tooltips,
+                          formatters={'$x': 'datetime'}
+                          )
+        return hover
 
     def generate_source(self):
         """
@@ -177,7 +184,6 @@ class Dashboard:
         new_source = ColumnDataSource(data=new_dict)
         return new_source
 
-
     def generate_plot(self, source: ColumnDataSource):
         """
         do the plotting based on interactive elements
@@ -185,7 +191,7 @@ class Dashboard:
         recovered)
         :return: the plot layout in a tab
         """
-        #global active_y_axis_type, active_tab
+        # global active_y_axis_type, active_tab
         print(self.active_y_axis_type)
         keys = source.data.keys()
         infected_numbers_new = []
@@ -205,10 +211,9 @@ class Dashboard:
         if self.active_y_axis_type == 'log':
             y_range = (0.1, y_log_max)
         selected_keys = [x for x in source.data.keys() if delta_suff in x or 'x' == x]
-        tooltips = self.generate_tool_tips(selected_keys)
-
         p_new = figure(title=f"{self.active_prefix} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                       background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type, tooltips=tooltips)
+                       background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
+        p_new.add_tools(self.generate_tool_tips(selected_keys))
         max_infected_numbers_absolute = max(infected_numbers_absolute)
         y_range = (-1, int(max_infected_numbers_absolute * 1.1))
         if y_range[1] > 0:
@@ -217,9 +222,11 @@ class Dashboard:
             y_range = (0.1, y_log_max)
 
         selected_keys = [x for x in source.data.keys() if total_suff in x or 'x' == x]
-        tooltips = self.generate_tool_tips(selected_keys)
-        p_absolute = figure(title=f"{self.active_prefix} (absolute)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                            background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type, tooltips=tooltips)
+        p_absolute = figure(title=f"{self.active_prefix} (absolute)", plot_height=400, plot_width=WIDTH,
+                            y_range=y_range,
+                            background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
+
+        p_absolute.add_tools(self.generate_tool_tips(selected_keys))
         for vals in source.data.keys():
             line_width = 1.5
             if vals == 'x' in vals:
@@ -253,8 +260,14 @@ class Dashboard:
                            line_width=line_width, line_cap='round', legend_label=name)
         p_absolute.legend.location = "top_left"
         p_absolute.legend.click_policy = "hide"
+        p_absolute.xaxis.formatter = DatetimeTickFormatter(days=["%y/%m/%d"],
+                                                           months=["%y/%m/%d"],
+                                                           years=["%y/%m/%d"])
         p_new.legend.location = "top_left"
         p_new.legend.click_policy = "hide"
+        p_new.xaxis.formatter = DatetimeTickFormatter(days=["%y/%m/%d"],
+                                                      months=["%y/%m/%d"],
+                                                      years=["%y/%m/%d"])
         tab1 = Panel(child=p_new, title=f"{self.active_prefix} (daily)")
         tab2 = Panel(child=p_absolute, title=f"{self.active_prefix} (cumulative)")
         tabs = Tabs(tabs=[tab1, tab2], name=TAB_PANE)
@@ -268,7 +281,6 @@ class Dashboard:
         :return: the tab element with the two plots
         """
         return self.layout.select_one(dict(name=TAB_PANE))
-
 
     def create_world_map(self):
         """
@@ -294,7 +306,6 @@ class Dashboard:
         world_map.circle(x='x', y='y', size='sizes', source=circle_source, fill_color="red", fill_alpha=0.8)
         return world_map
 
-
     def update_data(self, attrname, old, new):
         """
         change the
@@ -305,17 +316,15 @@ class Dashboard:
         """
         self.country_list = new
         self.source.data = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix)
-        self.layout.set_select(dict(name=TAB_PANE),dict(tabs=self.generate_plot(self.source).tabs))
+        self.layout.set_select(dict(name=TAB_PANE), dict(tabs=self.generate_plot(self.source).tabs))
 
-
-    def update_capita(self,new):
+    def update_capita(self, new):
         # callback to change between total and per capita numbers
         if new == 0:
             self.active_per_capita = 'total'
         else:
             self.active_per_capita = 'per_capita'
         self.update_data('', self.country_list, self.country_list)
-
 
     def update_scale_button(self, new):
         """
@@ -329,8 +338,7 @@ class Dashboard:
             self.active_y_axis_type = 'linear'
         self.update_data('', self.country_list, self.country_list)
 
-
-    def update_average_button(self,new):
+    def update_average_button(self, new):
         """
         changes between mean and median averaging
         :param new:
@@ -342,8 +350,7 @@ class Dashboard:
             self.active_average = 'median'
         self.update_data('', self.country_list, self.country_list)
 
-
-    def update_shown_plots(self,new):
+    def update_shown_plots(self, new):
         """
         updates what lines are shown in the plot
         :param new: active lines list from [0,1,2]
@@ -358,7 +365,6 @@ class Dashboard:
             self.active_plot_trend = True
         # redraw
         self.update_data('', self.country_list, self.country_list)
-
 
     def update_data_frame(self, new):
         """
@@ -377,9 +383,7 @@ class Dashboard:
             self.active_prefix = 'recovered'
         self.update_data('', '', self.country_list)
 
-
-
-    def update_window_size(self,attr, old, new):
+    def update_window_size(self, attr, old, new):
         """
         updates the value of the sliding window
         :param attr: attributes not used
@@ -390,11 +394,7 @@ class Dashboard:
         self.active_window_size = new
         self.update_data('', self.country_list, self.country_list)
 
-
-
-
-
-    def update_tab(self,attr, old, new):
+    def update_tab(self, attr, old, new):
         """
         should update the active tab in plot
         does not always work, we fetch instead the active tab from somewhere else
@@ -445,9 +445,10 @@ class Dashboard:
             text="""Covid-19 Dashboard created by Andreas Weichslgartner in April 2020 with python, bokeh, pandas, numpy, pyproj, and colorcet. Source Code can be found at <a href="https://github.com/weichslgartner/covid_dashboard/">Github</a>.""",
             width=1600, height=10, align='center')
         self.layout = column(
-            row(column(tab_plot, world_map), column(refresh_button,radio_button_group_df, radio_button_group_per_capita, plots_button_group,
-                                                    radio_button_group_scale, slider, radio_button_average,
-                                                    multi_select),
+            row(column(tab_plot, world_map),
+                column(refresh_button, radio_button_group_df, radio_button_group_per_capita, plots_button_group,
+                       radio_button_group_scale, slider, radio_button_average,
+                       multi_select),
                 width=800),
             div)
 
@@ -455,10 +456,5 @@ class Dashboard:
         curdoc().title = "Bokeh Covid-19 Dashboard"
 
 
-
-
-
 dash = Dashboard()
 dash.do_layout()
-
-
