@@ -87,7 +87,7 @@ class Dashboard:
         self.active_plot_trend = True
         self.layout = None
         self.source = None
-        self.country_list = None
+        self.country_list = ['Germany']
 
     @staticmethod
     def calc_trend(y: pd.Series, window_size: int):
@@ -180,7 +180,7 @@ class Dashboard:
         initialize the data source with Germany
         :return:
         """
-        new_dict = self.get_dict_from_df(self.active_df, ['Germany'], self.active_prefix)
+        new_dict = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix)
         new_source = ColumnDataSource(data=new_dict)
         return new_source
 
@@ -381,7 +381,7 @@ class Dashboard:
         else:
             self.active_df = df_recovered
             self.active_prefix = 'recovered'
-        self.update_data('', '', self.country_list)
+        self.update_data('',  self.country_list, self.country_list)
 
     def update_window_size(self, attr, old, new):
         """
