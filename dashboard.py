@@ -158,6 +158,15 @@ class Dashboard:
             new_dict['x'] = list(range(0, len(delta_raw)))
         return new_dict
 
+    @staticmethod
+    def generate_tool_tips(selected_keys):
+        """
+        string magic for the tool tips
+        :param selected_keys:
+        :return:
+        """
+        return [(f"{revert_special_chars_replacement(x.split('_')[0])} ({x.split('_')[-1]})",
+                 f"@{x}{{(0,0)}}") for x in selected_keys]
 
     def generate_source(self):
         """
@@ -195,7 +204,6 @@ class Dashboard:
             y_log_max = 10 ** ceil(log10(y_range[1]))
         if self.active_y_axis_type == 'log':
             y_range = (0.1, y_log_max)
-
         selected_keys = [x for x in source.data.keys() if delta_suff in x or 'x' == x]
         tooltips = self.generate_tool_tips(selected_keys)
 
@@ -250,37 +258,37 @@ class Dashboard:
         tab1 = Panel(child=p_new, title=f"{self.active_prefix} (daily)")
         tab2 = Panel(child=p_absolute, title=f"{self.active_prefix} (cumulative)")
         tabs = Tabs(tabs=[tab1, tab2], name=TAB_PANE)
-        if self.layout != None:
-            tabs.active = self.get_tab_pane().active #self.layout.children[0].children[0].children[0].active
-        #tabs.active = self.active_tab
-        # r = p.line('x', 'new_rol', color="red", line_width=1.5, alpha=0.8)
-
+        if self.layout is not None:
+            tabs.active = self.get_tab_pane().active
         return tabs
 
     def get_tab_pane(self):
+        """
+        gets the tabs DOM element
+        :return: the tab element with the two plots
+        """
         return self.layout.select_one(dict(name=TAB_PANE))
-
-    @staticmethod
-    def generate_tool_tips(slected_keys):
-        return [(f"{revert_special_chars_replacement(x.split('_')[0])} ({x.split('_')[-1]})",
-                 f"@{x}{{(0,0)}}") for x in slected_keys]
 
 
     def create_world_map(self):
+        """
+        draws the fancy world map and do some projection magic
+        :return:
+        """
         tile_provider = get_provider(Vendors.CARTODBPOSITRON_RETINA)
         transformer = Transformer.from_crs("epsg:4326", "epsg:3857")
         x, y = transformer.transform(df_deaths['Lat'].values, df_deaths['Long'].values)
         circle_source = ColumnDataSource(
-            dict(x=x, y=y, sizes=df_deaths[df_deaths.columns[-1]].apply(lambda x: ceil(log(x) * 4) if x > 1 else 1),
+            dict(x=x, y=y, sizes=df_deaths[df_deaths.columns[-1]].apply(lambda d: ceil(log(d) * 4) if d > 1 else 1),
                  country=df_deaths['Country/Region'], province=df_deaths['Province/State'].fillna('')))
-        TOOLTIPS = [
+        tool_tips = [
             ("(x,y)", "($x, $y)"),
             ("country", "@country"),
             ("province", "@province")
 
         ]
         world_map = figure(width=WIDTH, height=400, x_range=(-BOUND, BOUND), y_range=(-10_000_000, 12_000_000),
-                           x_axis_type="mercator", y_axis_type="mercator", tooltips=TOOLTIPS)
+                           x_axis_type="mercator", y_axis_type="mercator", tooltips=tool_tips)
         # world_map.axis.visible = False
         world_map.add_tile(tile_provider)
         world_map.circle(x='x', y='y', size='sizes', source=circle_source, fill_color="red", fill_alpha=0.8)
@@ -288,14 +296,21 @@ class Dashboard:
 
 
     def update_data(self, attrname, old, new):
+        """
+        change the
+        :param attrname:
+        :param old:
+        :param new:
+        :return:
+        """
         self.country_list = new
         self.source.data = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix)
         self.layout.set_select(dict(name=TAB_PANE),dict(tabs=self.generate_plot(self.source).tabs))
 
 
     def update_capita(self,new):
-       # global active_per_capita
-        if (new == 0):
+        # callback to change between total and per capita numbers
+        if new == 0:
             self.active_per_capita = 'total'
         else:
             self.active_per_capita = 'per_capita'
@@ -303,8 +318,12 @@ class Dashboard:
 
 
     def update_scale_button(self, new):
-        #global layout, active_y_axis_type, source
-        if (new == 0):
+        """
+        changes between log and linear y axis
+        :param new:
+        :return:
+        """
+        if new == 0:
             self.active_y_axis_type = 'log'
         else:
             self.active_y_axis_type = 'linear'
@@ -312,6 +331,11 @@ class Dashboard:
 
 
     def update_average_button(self,new):
+        """
+        changes between mean and median averaging
+        :param new:
+        :return:
+        """
         if new == 0:
             self.active_average = 'mean'
         else:
@@ -320,7 +344,11 @@ class Dashboard:
 
 
     def update_shown_plots(self,new):
-        #global active_plot_raw, active_plot_average, active_plot_trend
+        """
+        updates what lines are shown in the plot
+        :param new: active lines list from [0,1,2]
+        :return:
+        """
         self.active_plot_raw, self.active_plot_average, self.active_plot_trend = False, False, False
         if 0 in new:
             self.active_plot_raw = True
@@ -328,27 +356,37 @@ class Dashboard:
             self.active_plot_average = True
         if 2 in new:
             self.active_plot_trend = True
-
-        self.layout.children[0].children[0].children[0] = self.generate_plot(self.source)
+        # redraw
+        self.update_data('', self.country_list, self.country_list)
 
 
     def update_data_frame(self, new):
-       # global active_df, source, active_prefix
-        if (new == 0):
+        """
+        updates what dataframe is shown in the plots
+        :param new: the new datafrome to be shown out of['confirmed','deaths','recovered']
+        :return:
+        """
+        if new == 0:
             self.active_df = df_confirmed
             self.active_prefix = 'confirmed'
-        elif (new == 1):
+        elif new == 1:
             self.active_df = df_deaths
             self.active_prefix = 'deaths'
         else:
             self.active_df = df_recovered
             self.active_prefix = 'recovered'
         self.update_data('', '', self.country_list)
-        # layout.children[0].children[0] = generate_plot(source)
+
 
 
     def update_window_size(self,attr, old, new):
-       # global active_window_size
+        """
+        updates the value of the sliding window
+        :param attr: attributes not used
+        :param old: old sliding window size
+        :param new: new sliding window size
+        :return: None
+        """
         self.active_window_size = new
         self.update_data('', self.country_list, self.country_list)
 
@@ -357,10 +395,24 @@ class Dashboard:
 
 
     def update_tab(self,attr, old, new):
+        """
+        should update the active tab in plot
+        does not always work, we fetch instead the active tab from somewhere else
+        thi function is just left there if sometime it works
+        :param attr:
+        :param old:
+        :param new:
+        :return:
+        """
         print(f"new tab{new}")
         self.active_tab = new
 
     def do_layout(self):
+        """
+        generates the overall layout by creating all the widgets, buttons etc and arranges
+        them in rows and columns
+        :return: None
+        """
         self.source = self.generate_source()
         tab_plot = self.generate_plot(self.source)
         multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=['Germany'],
@@ -401,6 +453,9 @@ class Dashboard:
 
         curdoc().add_root(self.layout)
         curdoc().title = "Bokeh Covid-19 Dashboard"
+
+
+
 
 
 dash = Dashboard()
