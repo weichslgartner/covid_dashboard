@@ -65,7 +65,7 @@ countries = [(x, x) for x in sorted(unique_countries)]
 # tooltip seems to have problems with characters which are no ASCII letters. remove them
 unique_countries_wo_special_chars = [replace_special_chars(x) for x in unique_countries]
 color_dict = dict(zip(unique_countries_wo_special_chars,
-                      cc.b_glasbey_bw[:len(unique_countries_wo_special_chars)]
+                      cc.b_glasbey_bw_minc_20_maxl_70[:len(unique_countries_wo_special_chars)]
                       )
                   )
 
