@@ -192,7 +192,6 @@ class Dashboard:
         :return: the plot layout in a tab
         """
         # global active_y_axis_type, active_tab
-        print(self.active_y_axis_type)
         keys = source.data.keys()
         infected_numbers_new = []
         infected_numbers_absolute = []
@@ -210,10 +209,9 @@ class Dashboard:
             y_log_max = 10 ** ceil(log10(y_range[1]))
         if self.active_y_axis_type == 'log':
             y_range = (0.1, y_log_max)
-        selected_keys = [x for x in source.data.keys() if delta_suff in x or 'x' == x]
         p_new = figure(title=f"{self.active_prefix} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                        background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
-        p_new.add_tools(self.generate_tool_tips(selected_keys))
+
         max_infected_numbers_absolute = max(infected_numbers_absolute)
         y_range = (-1, int(max_infected_numbers_absolute * 1.1))
         if y_range[1] > 0:
@@ -221,15 +219,17 @@ class Dashboard:
         if self.active_y_axis_type == 'log':
             y_range = (0.1, y_log_max)
 
-        selected_keys = [x for x in source.data.keys() if total_suff in x or 'x' == x]
         p_absolute = figure(title=f"{self.active_prefix} (absolute)", plot_height=400, plot_width=WIDTH,
                             y_range=y_range,
                             background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
 
-        p_absolute.add_tools(self.generate_tool_tips(selected_keys))
+        selected_keys_absolute = []
+        selected_keys_new = []
         for vals in source.data.keys():
             line_width = 1.5
             if vals == 'x' in vals:
+                selected_keys_absolute.append(vals)
+                selected_keys_new.append(vals)
                 continue
             tokenz = vals.split('_')
             name = f"{revert_special_chars_replacement(tokenz[0])} ({tokenz[-1]})"
@@ -253,9 +253,11 @@ class Dashboard:
                     continue
 
             if total_suff in vals:
+                selected_keys_absolute.append(vals)
                 p_absolute.line('x', vals, source=source, line_dash=line_dash, color=color, alpha=alpha,
                                 line_width=line_width, line_cap='butt', legend_label=name)
             else:
+                selected_keys_new.append(vals)
                 p_new.line('x', vals, source=source, line_dash=line_dash, color=color, alpha=alpha,
                            line_width=line_width, line_cap='round', legend_label=name)
         p_absolute.legend.location = "top_left"
@@ -263,11 +265,15 @@ class Dashboard:
         p_absolute.xaxis.formatter = DatetimeTickFormatter(days=["%y/%m/%d"],
                                                            months=["%y/%m/%d"],
                                                            years=["%y/%m/%d"])
+        p_absolute.add_tools(self.generate_tool_tips(selected_keys_absolute))
+
         p_new.legend.location = "top_left"
         p_new.legend.click_policy = "hide"
         p_new.xaxis.formatter = DatetimeTickFormatter(days=["%y/%m/%d"],
                                                       months=["%y/%m/%d"],
                                                       years=["%y/%m/%d"])
+        p_new.add_tools(self.generate_tool_tips(selected_keys_new))
+
         tab1 = Panel(child=p_new, title=f"{self.active_prefix} (daily)")
         tab2 = Panel(child=p_absolute, title=f"{self.active_prefix} (cumulative)")
         tabs = Tabs(tabs=[tab1, tab2], name=TAB_PANE)
