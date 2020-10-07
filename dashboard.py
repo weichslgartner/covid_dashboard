@@ -13,6 +13,8 @@ from bokeh.tile_providers import get_provider, Vendors
 from math import log, log10, ceil
 from pyproj import Transformer
 
+DATETIME_TICK_FORMATTER = DatetimeTickFormatter(days=["%Y-%m-%d"], months=["%Y-%m-%d"], years=["%Y-%m-%d"])
+
 TAB_PANE = "TabPane"
 
 BACKGROUND_COLOR = '#F5F5F5'  # grayish bg color
@@ -262,16 +264,12 @@ class Dashboard:
                            line_width=line_width, line_cap='round', legend_label=name)
         p_absolute.legend.location = "top_left"
         p_absolute.legend.click_policy = "hide"
-        p_absolute.xaxis.formatter = DatetimeTickFormatter(days=["%y/%m/%d"],
-                                                           months=["%y/%m/%d"],
-                                                           years=["%y/%m/%d"])
+        p_absolute.xaxis.formatter = DATETIME_TICK_FORMATTER
         p_absolute.add_tools(self.generate_tool_tips(selected_keys_absolute))
 
         p_new.legend.location = "top_left"
         p_new.legend.click_policy = "hide"
-        p_new.xaxis.formatter = DatetimeTickFormatter(days=["%y/%m/%d"],
-                                                      months=["%y/%m/%d"],
-                                                      years=["%y/%m/%d"])
+        p_new.xaxis.formatter = DATETIME_TICK_FORMATTER
         p_new.add_tools(self.generate_tool_tips(selected_keys_new))
 
         tab1 = Panel(child=p_new, title=f"{self.active_prefix} (daily)")
