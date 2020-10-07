@@ -4,8 +4,9 @@ import pandas as pd
 import numpy as np
 import colorcet as cc
 from typing import List
-from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button, DatetimeTickFormatter, HoverTool
-from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup, Div, CheckboxButtonGroup
+from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button, DatetimeTickFormatter, HoverTool, \
+    NumberFormatter
+from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup, Div, CheckboxButtonGroup, TableColumn, DataTable
 from bokeh.plotting import figure
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
@@ -33,15 +34,25 @@ base_url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/css
 confirmed = 'time_series_covid19_confirmed_global.csv'
 deaths = 'time_series_covid19_deaths_global.csv'
 recovered = 'time_series_covid19_recovered_global.csv'
-
+population = 'data/population.csv'
+case_columns = []
 
 def load_data_frames():
+    global case_columns
     print("refresh")
     # load data directly from github to dataframes
     df_confirmed_ = pd.read_csv(f"{base_url}{confirmed}")
     df_deaths_ = pd.read_csv(f"{base_url}{deaths}")
     df_recovered_ = pd.read_csv(f"{base_url}{recovered}")
-    df_population_ = pd.read_csv('data/population.csv')
+    df_population_ = pd.read_csv(population,index_col=0)
+    case_columns = df_confirmed_.columns[4:]
+    df_confirmed_ = df_confirmed_.groupby(["Country/Region"])[case_columns].agg(sum)
+    df_confirmed_ = df_confirmed_.merge(df_population_, left_index=True, right_index=True)
+    daily = df_confirmed_[case_columns].diff(axis=1).fillna(0)[case_columns[-8:-1]]
+    df_confirmed_["7_day_average_new"] = daily.mean(axis=1)
+    df_confirmed_["7_day_average_new_per_capita"] = df_confirmed_["7_day_average_new"] /(df_confirmed_["Population"]/1e6)
+    df_confirmed_["total"] = df_confirmed_[case_columns[-1]]
+    df_confirmed_["total_per_capita"] =  df_confirmed_["total"] /(df_confirmed_["Population"]/1e6)
     return df_confirmed_, df_deaths_, df_recovered_, df_population_
 
 
@@ -89,6 +100,8 @@ class Dashboard:
         self.active_plot_trend = True
         self.layout = None
         self.source = None
+        self.top_new_source = ColumnDataSource(data=dict())
+        self.top_total_source = ColumnDataSource(data=dict())
         self.country_list = ['Germany']
 
     @staticmethod
@@ -119,9 +132,9 @@ class Dashboard:
         avg_fun = lambda x: x.mean()
         if self.active_average == 'median':
             avg_fun = lambda x: np.median(x)
-        x_date = [pd.to_datetime(df.columns[4]) + timedelta(days=x) for x in range(0, len(df.columns[4:]))]
+        x_date = [pd.to_datetime(case_columns[0]) + timedelta(days=x) for x in range(0, len(case_columns))]
         df_sub = df[df['Country/Region'] == country]
-        absolute = df_sub[df_sub.columns[4:]].sum(axis=0).to_frame(name='sum')
+        absolute = df_sub[case_columns].sum(axis=0).to_frame(name='sum')
         absolute_rolling = absolute.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
         absolute_trend = self.calc_trend(absolute, rolling_window)
         new_cases = absolute.diff(axis=0).fillna(0)
@@ -328,6 +341,8 @@ class Dashboard:
             self.active_per_capita = 'total'
         else:
             self.active_per_capita = 'per_capita'
+        self.generate_table_new()
+        self.generate_table_cumulative()
         self.update_data('', self.country_list, self.country_list)
 
     def update_scale_button(self, new):
@@ -411,6 +426,31 @@ class Dashboard:
         print(f"new tab{new}")
         self.active_tab = new
 
+
+
+    def generate_table_new(self):
+        column = "7_day_average_new"
+        if self.active_per_capita == 'per_capita':
+            column = "7_day_average_new_per_capita"
+
+        current = df_confirmed.sort_values(by=[column],ascending=False).head(-1)
+        self.top_new_source.data = {
+            'name': current['Country/Region'],
+            'number': current[column],
+        }
+
+
+    def generate_table_cumulative(self):
+        column = "total"
+        if self.active_per_capita == 'per_capita':
+            column = "total_per_capita"
+        current = df_confirmed.sort_values(by=[column],ascending=False).head(-1)
+        self.top_total_source.data = {
+            'name': current['Country/Region'],
+            'number': current[column],
+        }
+
+
     def do_layout(self):
         """
         generates the overall layout by creating all the widgets, buttons etc and arranges
@@ -420,7 +460,7 @@ class Dashboard:
         self.source = self.generate_source()
         tab_plot = self.generate_plot(self.source)
         multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=['Germany'],
-                                   options=countries, height=700)
+                                   options=countries, height=500)
         multi_select.on_change('value', self.update_data)
         tab_plot.on_change('active', self.update_tab)
 
@@ -448,8 +488,28 @@ class Dashboard:
         div = Div(
             text="""Covid-19 Dashboard created by Andreas Weichslgartner in April 2020 with python, bokeh, pandas, numpy, pyproj, and colorcet. Source Code can be found at <a href="https://github.com/weichslgartner/covid_dashboard/">Github</a>.""",
             width=1600, height=10, align='center')
+        self.generate_table_cumulative()
+        columns = [
+            TableColumn(field="name", title="Contry"),
+            TableColumn(field="number", title="confirmed(daily)", formatter=NumberFormatter(format="0."))
+        ]
+        top_top_14_new_header = Div(
+            text="Highest confirmed(daily)",
+             align='center')
+        top_top_14_new = DataTable(source=self.top_new_source,name="Highest confirmed(daily)", columns=columns, width=300,height=380)
+        self.generate_table_new()
+        columns = [
+            TableColumn(field="name", title="Contry"),
+            TableColumn(field="number", title="confirmed(cumulative)",formatter=NumberFormatter(format="0."))
+        ]
+
+        top_top_14_cum_header = Div(
+            text="Highest confirmed(cumulative)",
+             align='center')
+        top_top_14_cum = DataTable(source=self.top_total_source,name="Highest confirmed(cumulative)", columns=columns, width=300, height=380)
         self.layout = column(
             row(column(tab_plot, world_map),
+                column(top_top_14_new_header,top_top_14_new,top_top_14_cum_header,top_top_14_cum),
                 column(refresh_button, radio_button_group_df, radio_button_group_per_capita, plots_button_group,
                        radio_button_group_scale, slider, radio_button_average,
                        multi_select),
