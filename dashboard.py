@@ -494,7 +494,7 @@ class Dashboard:
             TableColumn(field="number", title="confirmed(daily)", formatter=NumberFormatter(format="0."))
         ]
         top_top_14_new_header = Div(
-            text="Highest confirmed(daily)",
+            text="Highest confirmed (daily)",
              align='center')
         top_top_14_new = DataTable(source=self.top_new_source,name="Highest confirmed(daily)", columns=columns, width=300,height=380)
         self.generate_table_new()
@@ -504,7 +504,7 @@ class Dashboard:
         ]
 
         top_top_14_cum_header = Div(
-            text="Highest confirmed(cumulative)",
+            text="Highest confirmed (cumulative)",
              align='center')
         top_top_14_cum = DataTable(source=self.top_total_source,name="Highest confirmed(cumulative)", columns=columns, width=300, height=380)
         self.layout = column(
