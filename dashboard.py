@@ -605,10 +605,12 @@ def parse_arguments(args):
     :return:
     """
     args = {k.lower(): v for k, v in args.items()}
-    country_list_ = ['']
+    country_list_ = ['Germany']
     if 'country' in args:
         country_list_ = [countries_lower_dict[to_basestring(c).lower()] for c in args['country'] if
                          to_basestring(c).lower() in countries_lower_dict.keys()]
+    if len(country_list_) == 0:
+        country_list_ = ['Germany']
     active_per_capita = parse_bool(args, 'per_capita', False)
     active_window_size = parse_int(args, 'window_size', 7)
     active_plot_raw = parse_bool(args, 'plot_raw')
