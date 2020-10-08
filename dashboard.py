@@ -38,25 +38,24 @@ population = 'data/population.csv'
 case_columns = []
 
 def load_data_frames():
-    global case_columns
     print("refresh")
     # load data directly from github to dataframes
     df_confirmed_ = pd.read_csv(f"{base_url}{confirmed}")
     df_deaths_ = pd.read_csv(f"{base_url}{deaths}")
     df_recovered_ = pd.read_csv(f"{base_url}{recovered}")
     df_population_ = pd.read_csv(population,index_col=0)
-    case_columns = df_confirmed_.columns[4:]
-    df_confirmed_ = df_confirmed_.groupby(["Country/Region"])[case_columns].agg(sum)
+    case_columns_ = df_confirmed_.columns[4:]
+    df_confirmed_ = df_confirmed_.groupby(["Country/Region"])[case_columns_].agg(sum)
     df_confirmed_ = df_confirmed_.merge(df_population_, left_index=True, right_index=True)
-    daily = df_confirmed_[case_columns].diff(axis=1).fillna(0)[case_columns[-8:-1]]
+    daily = df_confirmed_[case_columns_].diff(axis=1).fillna(0)[case_columns_[-8:-1]]
     df_confirmed_["7_day_average_new"] = daily.mean(axis=1)
     df_confirmed_["7_day_average_new_per_capita"] = df_confirmed_["7_day_average_new"] /(df_confirmed_["Population"]/1e6)
-    df_confirmed_["total"] = df_confirmed_[case_columns[-1]]
+    df_confirmed_["total"] = df_confirmed_[case_columns_[-1]]
     df_confirmed_["total_per_capita"] =  df_confirmed_["total"] /(df_confirmed_["Population"]/1e6)
-    return df_confirmed_, df_deaths_, df_recovered_, df_population_
+    return case_columns_, df_confirmed_, df_deaths_, df_recovered_, df_population_
 
 
-df_confirmed, df_deaths, df_recovered, df_population = load_data_frames()
+case_columns, df_confirmed, df_deaths, df_recovered, df_population = load_data_frames()
 ws_replacement = '1'
 
 
@@ -146,11 +145,11 @@ class Dashboard:
             pop /= 1e6
             factor = 1 / pop
         return x_date, \
-               np.ravel(absolute.replace(0, EPSILON).values) * factor, \
-               np.ravel(absolute_rolling.replace(0, EPSILON).values) * factor, \
+               np.ravel(absolute.values) * factor, \
+               np.ravel(absolute_rolling.values) * factor, \
                absolute_trend * factor, \
-               np.ravel(new_cases.replace(0, EPSILON).values) * factor, \
-               np.ravel(new_cases_rolling.replace(0, EPSILON).values * factor), \
+               np.ravel(new_cases.values) * factor, \
+               np.ravel(new_cases_rolling.values * factor), \
                new_cases_trend * factor
 
     def get_dict_from_df(self, df: pd.DataFrame, country_list: List[str], prefix: str):
@@ -519,6 +518,8 @@ class Dashboard:
         curdoc().add_root(self.layout)
         curdoc().title = "Bokeh Covid-19 Dashboard"
 
-
+args = curdoc().session_context.request.arguments
+print(args)
 dash = Dashboard()
 dash.do_layout()
+
