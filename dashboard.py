@@ -1,11 +1,10 @@
+import colorcet as cc
+import numpy as np
+import pandas as pd
 from datetime import timedelta
 from enum import Enum
 from math import log, log10, ceil
 from typing import List
-
-import colorcet as cc
-import numpy as np
-import pandas as pd
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button, DatetimeTickFormatter, HoverTool, \
@@ -30,7 +29,8 @@ trend = 'trend'
 rolling = 'rolling'
 
 # urls for hopkins data
-base_url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/'
+base_url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/' \
+           'csse_covid_19_time_series/'
 confirmed = 'time_series_covid19_confirmed_global.csv'
 deaths = 'time_series_covid19_deaths_global.csv'
 recovered = 'time_series_covid19_recovered_global.csv'
@@ -45,22 +45,45 @@ def load_data_frames():
     df_recovered_ = pd.read_csv(f"{base_url}{recovered}")
     df_population_ = pd.read_csv(population, index_col=0)
     case_columns_ = df_confirmed_.columns[4:]
-    df_confirmed_ = df_confirmed_.groupby(["Country/Region"])[case_columns_].agg(sum)
-    df_confirmed_ = df_confirmed_.merge(df_population_, left_index=True, right_index=True)
-    daily = df_confirmed_[case_columns_].diff(axis=1).fillna(0)[case_columns_[-8:-1]]
-    df_confirmed_["last_day"] = daily[daily.columns[-1]]
-    df_confirmed_["last_day_per_capita"] = df_confirmed_["last_day"] / (
-            df_confirmed_["Population"] / 1e6)
-    df_confirmed_["7_day_average_new"] = daily.mean(axis=1)
-    df_confirmed_["7_day_average_new_per_capita"] = df_confirmed_["7_day_average_new"] / (
-            df_confirmed_["Population"] / 1e6)
-    df_confirmed_["total"] = df_confirmed_[case_columns_[-1]]
-    df_confirmed_["total_per_capita"] = df_confirmed_["total"] / (df_confirmed_["Population"] / 1e6)
-    return case_columns_, df_confirmed_, df_deaths_, df_recovered_, df_population_
+    # get province with most cases for latitutes
+    df_coord_ = get_coord_df(df_confirmed_, case_columns_)
+    df_confirmed_ = create_additional_columns(case_columns_, df_confirmed_, df_population_)
+    df_deaths_ = create_additional_columns(case_columns_, df_deaths_, df_population_)
+    df_recovered_ = create_additional_columns(case_columns_, df_recovered_, df_population_)
+    return case_columns_, df_coord_, df_confirmed_, df_deaths_, df_recovered_, df_population_
 
 
-case_columns, df_confirmed, df_deaths, df_recovered, df_population = load_data_frames()
+def get_coord_df(df: pd.DataFrame, case_cols: List[str]) -> pd.DataFrame:
+    """
+
+    :param df:
+    :param case_cols:
+    :return:
+    """
+    idx = df.groupby(['Country/Region'])[case_cols[-1]].transform(max) == df[case_cols[-1]]
+    return df[idx][['Country/Region', 'Lat', 'Long']]
+
+
+def create_additional_columns(case_col: List, df: pd.DataFrame,df_pop: pd.DataFrame) ->pd.DataFrame:
+    df = df.groupby(["Country/Region"])[case_col].agg(sum)
+    df = df.merge(df_pop, left_index=True, right_index=True)
+    daily = df[case_col].diff(axis=1).fillna(0)[case_col[-8:-1]]
+    df["last_day"] = daily[daily.columns[-1]]
+    df["last_day_per_capita"] = df["last_day"] / (
+            df["Population"] / 1e6)
+    df["7_day_average_new"] = daily.mean(axis=1)
+    df["7_day_average_new_per_capita"] = df["7_day_average_new"] / (
+            df["Population"] / 1e6)
+    df["total"] = df[case_col[-1]]
+    df["total_per_capita"] = df["total"] / (df["Population"] / 1e6)
+    return df
+
+
+case_columns, df_coord, df_confirmed, df_deaths, df_recovered, df_population = load_data_frames()
 ws_replacement = '1'
+
+transformer = Transformer.from_crs("epsg:4326", "epsg:3857")
+x_coord, y_coord = transformer.transform(df_coord['Lat'].values, df_coord['Long'].values)
 
 
 def replace_special_chars(x):
@@ -133,6 +156,7 @@ class Dashboard:
         self.source = None
         self.top_new_source = ColumnDataSource(data=dict())
         self.top_total_source = ColumnDataSource(data=dict())
+        self.world_circle_source = ColumnDataSource(data=dict())
         self.country_list = country_list
 
     @staticmethod
@@ -336,23 +360,27 @@ class Dashboard:
         :return:
         """
         tile_provider = get_provider(Vendors.CARTODBPOSITRON_RETINA)
-        transformer = Transformer.from_crs("epsg:4326", "epsg:3857")
-        x, y = transformer.transform(df_deaths['Lat'].values, df_deaths['Long'].values)
-        circle_source = ColumnDataSource(
-            dict(x=x, y=y, sizes=df_deaths[df_deaths.columns[-1]].apply(lambda d: ceil(log(d) * 4) if d > 1 else 1),
-                 country=df_deaths['Country/Region'], province=df_deaths['Province/State'].fillna('')))
+
         tool_tips = [
             ("(x,y)", "($x, $y)"),
             ("country", "@country"),
-            ("province", "@province")
+            ("number", "@num")
 
         ]
         world_map = figure(width=WIDTH, height=400, x_range=(-BOUND, BOUND), y_range=(-10_000_000, 12_000_000),
                            x_axis_type="mercator", y_axis_type="mercator", tooltips=tool_tips)
         # world_map.axis.visible = False
         world_map.add_tile(tile_provider)
-        world_map.circle(x='x', y='y', size='sizes', source=circle_source, fill_color="red", fill_alpha=0.8)
+        self.world_circle_source = ColumnDataSource(
+            dict(x=x_coord, y=y_coord, num=self.active_df['total'], sizes=self.active_df['total'].apply(lambda d: ceil(log(d) * 4) if d > 1 else 1),
+                 country=self.active_df['Country/Region']))
+        world_map.circle(x='x', y='y', size='sizes', source=self.world_circle_source, fill_color="red", fill_alpha=0.8)
         return world_map
+
+
+    def update_world_map(self):
+        self.world_circle_source.data = dict(x=x_coord, y=y_coord, num=self.active_df['total'], sizes=self.active_df['total'].apply(lambda d: ceil(log(d) * 4) if d > 1 else 1),
+             country=self.active_df['Country/Region'])
 
     def update_data(self, attrname, old, new):
         """
@@ -432,6 +460,9 @@ class Dashboard:
         else:
             self.active_df = df_recovered
             self.active_prefix = 'recovered'
+        self.update_world_map()
+        self.generate_table_cumulative()
+        self.generate_table_new()
         self.update_data('', self.country_list, self.country_list)
 
     def update_window_size(self, attr, old, new):
@@ -458,6 +489,9 @@ class Dashboard:
         print(f"new tab{new}")
         self.active_tab = new
 
+
+
+
     def generate_table_new(self):
         """
         generates table for daily new
@@ -469,7 +503,7 @@ class Dashboard:
             column_avg = "7_day_average_new_per_capita"
             column_last_day = "last_day_per_capita"
 
-        current = df_confirmed.sort_values(by=[column_avg], ascending=False).head(-1)
+        current = self.active_df.sort_values(by=[column_avg], ascending=False).head(-1)
         self.top_new_source.data = {
             'name': current['Country/Region'],
             'number_rolling': current[column_avg],
@@ -484,7 +518,7 @@ class Dashboard:
         column = "total"
         if self.active_per_capita:
             column = "total_per_capita"
-        current = df_confirmed.sort_values(by=[column], ascending=False).head(-1)
+        current = self.active_df.sort_values(by=[column], ascending=False).head(-1)
         self.top_total_source.data = {
             'name': current['Country/Region'],
             'number': current[column],
@@ -497,6 +531,14 @@ class Dashboard:
         :return: None
         """
         self.source = self.generate_source()
+        active_data = 0
+        self.active_df = df_confirmed
+        if active_prefix == 'deaths':
+            active_data = 1
+            self.active_df = df_deaths
+        elif active_prefix == 'recovered':
+            active_data = 2
+            self.active_df = df_recovered
         tab_plot = self.generate_plot(self.source)
         multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=self.country_list,
                                    options=countries, height=500)
@@ -509,14 +551,7 @@ class Dashboard:
         radio_button_group_scale = RadioButtonGroup(
             labels=["Logarithmic", "Linear"], active=1 if self.active_y_axis_type == Scale.LINEAR else 0)
         radio_button_group_scale.on_click(self.update_scale_button)
-        active_data = 0
-        self.active_df = df_confirmed
-        if active_prefix == 'deaths':
-            active_data = 1
-            self.active_df = df_deaths
-        elif active_prefix == 'recovered':
-            active_data = 2
-            self.active_df = df_recovered
+
         radio_button_group_df = RadioButtonGroup(
             labels=["Confirmed", "Death", "Recovered"], active=active_data)
         radio_button_group_df.on_click(self.update_data_frame)
