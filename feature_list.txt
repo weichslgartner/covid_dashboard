@@ -4,9 +4,11 @@ x per capita
 x rolling window editable
 x tooltip graph
 x add trendline
-better tooltipp
-highlight current selection on map
+x better tooltipp
+x highlight current selection on map
 x fix world map offsets
 x fix color for country
 x integrate into web app
 x logarithmic/linear scaling for world map
+adjustable map
+heatmap colors for map
