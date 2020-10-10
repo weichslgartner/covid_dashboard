@@ -2,7 +2,7 @@ import colorcet as cc
 import numpy as np
 import pandas as pd
 from datetime import timedelta
-from enum import Enum
+from enum import Enum, IntEnum
 from math import log, log10, ceil
 from typing import List
 from bokeh.io import curdoc
@@ -127,12 +127,17 @@ class Scale(str, Enum):
     LOGARITHMIC = 'log'
 
 
+class Prefix(IntEnum):
+    confirmed = 0
+    deaths = 1
+    recovered = 2
+
 class Dashboard:
 
     def __init__(self,
                  active_average: Average = Average.MEAN,
                  active_y_axis_type: Scale = Scale.LINEAR,
-                 active_prefix='confirmed',
+                 active_prefix=Prefix.confirmed,   #'confirmed',
                  active_tab=0,
                  active_window_size=7,
                  active_per_capita=False,
@@ -144,8 +149,6 @@ class Dashboard:
         # global variables which can be controlled by interactive bokeh elements
         self.active_average = active_average
         self.active_y_axis_type = active_y_axis_type
-        self.active_df = df_confirmed
-        self.active_prefix = active_prefix
         self.active_tab = active_tab
         self.active_window_size = active_window_size
         self.active_per_capita = active_per_capita
@@ -158,6 +161,12 @@ class Dashboard:
         self.top_total_source = ColumnDataSource(data=dict())
         self.world_circle_source = ColumnDataSource(data=dict())
         self.country_list = country_list
+        self.active_prefix = active_prefix
+        self.active_df = df_confirmed
+        if self.active_prefix == Prefix.deaths:
+            self.active_df = df_deaths
+        elif self.active_prefix == Prefix.recovered:
+            self.active_df = df_recovered
 
     @staticmethod
     def calc_trend(y: pd.Series, window_size: int):
@@ -250,7 +259,7 @@ class Dashboard:
         initialize the data source with Germany
         :return:
         """
-        new_dict = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix)
+        new_dict = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix.name)
         new_source = ColumnDataSource(data=new_dict)
         return new_source
 
@@ -279,7 +288,7 @@ class Dashboard:
             y_log_max = 10 ** ceil(log10(y_range[1]))
         if self.active_y_axis_type == Scale.LOGARITHMIC:
             y_range = (0.1, y_log_max)
-        p_new = figure(title=f"{self.active_prefix} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
+        p_new = figure(title=f"{self.active_prefix.name} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                        background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
 
         max_infected_numbers_absolute = max(infected_numbers_absolute)
@@ -289,7 +298,7 @@ class Dashboard:
         if self.active_y_axis_type == 'log':
             y_range = (0.1, y_log_max)
 
-        p_absolute = figure(title=f"{self.active_prefix} (absolute)", plot_height=400, plot_width=WIDTH,
+        p_absolute = figure(title=f"{self.active_prefix.name} (absolute)", plot_height=400, plot_width=WIDTH,
                             y_range=y_range,
                             background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
 
@@ -340,8 +349,8 @@ class Dashboard:
         p_new.xaxis.formatter = DATETIME_TICK_FORMATTER
         p_new.add_tools(self.generate_tool_tips(selected_keys_new))
 
-        tab1 = Panel(child=p_new, title=f"{self.active_prefix} (daily)")
-        tab2 = Panel(child=p_absolute, title=f"{self.active_prefix} (cumulative)")
+        tab1 = Panel(child=p_new, title=f"{self.active_prefix.name} (daily)")
+        tab2 = Panel(child=p_absolute, title=f"{self.active_prefix.name} (cumulative)")
         tabs = Tabs(tabs=[tab1, tab2], name=TAB_PANE)
         if self.layout is not None:
             tabs.active = self.get_tab_pane().active
@@ -364,7 +373,7 @@ class Dashboard:
         tool_tips = [
             ("(x,y)", "($x, $y)"),
             ("country", "@country"),
-            ("number", "@num")
+            ("number", "@num{(0,0)}")
 
         ]
         world_map = figure(width=WIDTH, height=400, x_range=(-BOUND, BOUND), y_range=(-10_000_000, 12_000_000),
@@ -391,7 +400,7 @@ class Dashboard:
         :return:
         """
         self.country_list = new
-        self.source.data = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix)
+        self.source.data = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix.name)
         self.layout.set_select(dict(name=TAB_PANE), dict(tabs=self.generate_plot(self.source).tabs))
 
     def update_capita(self, new):
@@ -451,15 +460,15 @@ class Dashboard:
         :return:
         """
 
-        if new == 0:
+        if new == int(Prefix.confirmed):
             self.active_df = df_confirmed
-            self.active_prefix = 'confirmed'
-        elif new == 1:
+            self.active_prefix = Prefix.confirmed
+        elif new == int(Prefix.deaths):
             self.active_df = df_deaths
-            self.active_prefix = 'deaths'
+            self.active_prefix = Prefix.deaths
         else:
             self.active_df = df_recovered
-            self.active_prefix = 'recovered'
+            self.active_prefix = Prefix.recovered
         self.update_world_map()
         self.generate_table_cumulative()
         self.generate_table_new()
@@ -531,14 +540,6 @@ class Dashboard:
         :return: None
         """
         self.source = self.generate_source()
-        active_data = 0
-        self.active_df = df_confirmed
-        if active_prefix == 'deaths':
-            active_data = 1
-            self.active_df = df_deaths
-        elif active_prefix == 'recovered':
-            active_data = 2
-            self.active_df = df_recovered
         tab_plot = self.generate_plot(self.source)
         multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=self.country_list,
                                    options=countries, height=500)
@@ -553,7 +554,8 @@ class Dashboard:
         radio_button_group_scale.on_click(self.update_scale_button)
 
         radio_button_group_df = RadioButtonGroup(
-            labels=["Confirmed", "Death", "Recovered"], active=active_data)
+            labels=[Prefix.confirmed.name.title(), Prefix.deaths.name.title(), Prefix.recovered.name.title(),],
+            active=int(self.active_prefix))
         radio_button_group_df.on_click(self.update_data_frame)
         refresh_button = Button(label="Refresh Data", button_type="default")
         refresh_button.on_click(load_data_frames)
@@ -655,13 +657,13 @@ def parse_arguments(args):
         args['average'][0]).lower() == 'median' else Average.MEAN
     active_y_axis_type = Scale.LOGARITHMIC if 'scale' in args and to_basestring(
         args['scale'][0]).lower() == 'log' else Scale.LINEAR
-    active_prefix = 'confirmed'
+    active_prefix = Prefix.confirmed
     if 'data' in args:
         val = to_basestring(args['data'][0]).lower()
-        if val in 'deaths':
-            active_prefix = 'deaths'
-        elif val in 'recovered':
-            active_prefix = 'recovered'
+        if val in  Prefix.deaths.name:
+            active_prefix = Prefix.deaths
+        elif val in Prefix.deaths.recovereds:
+            active_prefix = Prefix.recovered
     return country_list_, active_per_capita, active_window_size, active_plot_raw, active_plot_average, \
            active_plot_trend, active_average, active_y_axis_type, active_prefix
 
