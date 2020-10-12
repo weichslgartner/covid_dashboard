@@ -1,11 +1,17 @@
-import colorcet as cc
-import numpy as np
-import pandas as pd
+"""
+bokeh covid-19 dashboard by Andreas Weichslgartner
+weichslgartner@gmail.com
+2020
+"""
+
 from collections import namedtuple
 from datetime import timedelta
 from enum import Enum, IntEnum
 from math import log, log10, ceil
 from typing import List
+import numpy as np
+import pandas as pd
+import colorcet as cc
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button, DatetimeTickFormatter, HoverTool, \
@@ -23,19 +29,22 @@ EPSILON = 0.1  # small number to prevent division by zero
 WIDTH = 1000  # width in pixels of big element
 DATETIME_TICK_FORMATTER = DatetimeTickFormatter(days=["%Y-%m-%d"], months=["%Y-%m-%d"], years=["%Y-%m-%d"])
 # suffixes
-total_suff = "cumulative"
-delta_suff = 'daily'
+TOTAL_SUFF = "cumulative"
+DELTA_SUFF = 'daily'
 
 # urls for hopkins data
-base_url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/' \
+BASE_URL = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/' \
            'csse_covid_19_time_series/'
-confirmed = 'time_series_covid19_confirmed_global.csv'
-deaths = 'time_series_covid19_deaths_global.csv'
-recovered = 'time_series_covid19_recovered_global.csv'
-population = 'data/population.csv'
+CONFIRMED_CSV = 'time_series_covid19_confirmed_global.csv'
+DEATHS_CSV = 'time_series_covid19_deaths_global.csv'
+RECOVERED_CSV = 'time_series_covid19_recovered_global.csv'
+POPULATION_CSV = 'data/population.csv'
 
 
 class ColumnNames(str, Enum):
+    """
+    Enum for special dataframe column names
+    """
     country = 'Country/Region'
     population = 'Population'
     long = 'Long'
@@ -43,34 +52,50 @@ class ColumnNames(str, Enum):
 
 
 class Average(IntEnum):
+    """
+    enum for the average function
+    """
     mean = 0
     median = 1
 
 
-class Scale(str, Enum):
-    LINEAR = 'linear'
-    LOGARITHMIC = 'log'
+class Scale(IntEnum):
+    """
+    enum for y axis scaling
+    """
+    log = 0
+    linear = 1
+
 
 
 class Prefix(IntEnum):
+    """
+    enum for data source
+    """
     confirmed = 0
     deaths = 1
     recovered = 2
 
 
 class PlotType(IntEnum):
+    """
+    enum for plot type
+    """
     raw = 0
     average = 1
     trend = 2
 
 
 def load_data_frames():
-    print("refresh")
+    """
+    load the dataframes from John-Hopkins github and do some pre-processing
+    :return: the loaded pandas data frames
+    """
     # load data directly from github to dataframes
-    df_confirmed_ = pd.read_csv(f"{base_url}{confirmed}")
-    df_deaths_ = pd.read_csv(f"{base_url}{deaths}")
-    df_recovered_ = pd.read_csv(f"{base_url}{recovered}")
-    df_population_ = pd.read_csv(population, index_col=0)
+    df_confirmed_ = pd.read_csv(f"{BASE_URL}{CONFIRMED_CSV}")
+    df_deaths_ = pd.read_csv(f"{BASE_URL}{DEATHS_CSV}")
+    df_recovered_ = pd.read_csv(f"{BASE_URL}{RECOVERED_CSV}")
+    df_population_ = pd.read_csv(POPULATION_CSV, index_col=0)
     case_columns_ = df_confirmed_.columns[4:]
     # get province with most cases for latitutes
     df_coord_ = get_coord_df(df_confirmed_, case_columns_)
@@ -86,50 +111,59 @@ def get_coord_df(df: pd.DataFrame, case_cols: List[str]) -> pd.DataFrame:
     :param case_cols:
     :return:
     """
-    idx = df.groupby([ColumnNames.country.name])[case_cols[-1]].transform(max) == df[case_cols[-1]]
-    return df[idx][[ColumnNames.country.name, ColumnNames.lat.name, ColumnNames.long.name]]
+    idx = df.groupby([ColumnNames.country.value])[case_cols[-1]].transform(max) == df[case_cols[-1]]
+    return df[idx][[ColumnNames.country.value, ColumnNames.lat.value, ColumnNames.long.value]]
 
 
 def create_additional_columns(case_col: List, df: pd.DataFrame, df_pop: pd.DataFrame) -> pd.DataFrame:
-    df = df.groupby([ColumnNames.country.name])[case_col].agg(sum)
+    df = df.groupby([ColumnNames.country.value])[case_col].agg(sum)
     df = df.merge(df_pop, left_index=True, right_index=True)
     daily = df[case_col].diff(axis=1).fillna(0)[case_col[-8:-1]]
     df["last_day"] = daily[daily.columns[-1]]
     df["last_day_per_capita"] = df["last_day"] / (
-            df[ColumnNames.population.name] / 1e6)
+            df[ColumnNames.population.value] / 1e6)
     df["7_day_average_new"] = daily.mean(axis=1)
     df["7_day_average_new_per_capita"] = df["7_day_average_new"] / (
-            df[ColumnNames.population.name] / 1e6)
+            df[ColumnNames.population.value] / 1e6)
     df["total"] = df[case_col[-1]]
-    df["total_per_capita"] = df["total"] / (df[ColumnNames.population.name] / 1e6)
+    df["total_per_capita"] = df["total"] / (df[ColumnNames.population.value] / 1e6)
     return df
 
 
 case_columns, df_coord, df_confirmed, df_deaths, df_recovered, df_population = load_data_frames()
-ws_replacement = '1'
 
+# Transform lat and long (World Geodetic System, GPS, EPSG:4326) to x and y  (Pseudo-Mercator, "epsg:3857")
 transformer = Transformer.from_crs("epsg:4326", "epsg:3857")
-x_coord, y_coord = transformer.transform(df_coord[ColumnNames.lat.name].values, df_coord[ColumnNames.long.name].values)
+x_coord, y_coord = transformer.transform(df_coord[ColumnNames.lat.value].values,
+                                         df_coord[ColumnNames.long.value].values)
+
+# hacky. needs to be an alphanumeric character but must not appear in country name. hope there will countries with
+# numbers
+WS_REPLACEMENT = '1'
 
 
-def replace_special_chars(x: str, replacement: str = ws_replacement) -> str:
+def replace_special_chars(in_string: str, replacement: str = WS_REPLACEMENT) -> str:
     """
     replace some non alphanumeric values with another character
     :param replacement: the character used as replacement
-    :param x: string to perform the replacement
+    :param in_string: string to perform the replacement
     :return: string with replaced characters
     """
-    return x.replace(' ', replacement). \
+    return in_string.replace(' ', replacement). \
         replace('-', replacement). \
         replace('(', replacement). \
         replace(')', replacement). \
         replace('*', replacement)
 
 
-def revert_special_chars_replacement(x: str) -> str:
-    # reverts all special character to whitespace
-    # it is not correct, but okayish workaround use multiple encodings
-    return x.replace(ws_replacement, ' ')
+def revert_special_chars_replacement(in_string: str) -> str:
+    """
+    reverts all special character to whitespace
+    it is not correct, but okay-ish workaround use multiple encodings
+    :param in_string: string to revert the replacement
+    :return: reverted string without replacement char
+    """
+    return in_string.replace(WS_REPLACEMENT, ' ')
 
 
 # create a constant color for each country
@@ -143,17 +177,19 @@ color_dict = dict(zip(unique_countries_wo_special_chars,
                       )
                   )
 
-line_attr = namedtuple('line_attr', ['line_dash', 'alpha', 'line_width'])
 
+line_attr = namedtuple('line_attr', ['line_dash', 'alpha', 'line_width'])
 line_dict = {PlotType.raw: line_attr('dashed', 0.5, 1.5), PlotType.average: line_attr('solid', 1, 1.5),
              PlotType.trend: line_attr('solid', 0.9, 5)}
 
 
 class Dashboard:
-
+    """
+    main dashboard class with class members for dashboard global variables which can be changed by callbacks
+    """
     def __init__(self,
                  active_average: Average = Average.mean,
-                 active_y_axis_type: Scale = Scale.LINEAR,
+                 active_y_axis_type: Scale = Scale.linear,
                  active_prefix=Prefix.confirmed,  # 'confirmed',
                  active_tab=0,
                  active_window_size=7,
@@ -226,7 +262,7 @@ class Dashboard:
         factor = 1
         if self.active_per_capita:
             pop = float(df_population[df_population[ColumnNames.country.value] == country]
-                        [ColumnNames.populations.value])
+                        [ColumnNames.population.value])
             pop /= 1e6
             factor = 1 / pop
         return x_date, \
@@ -247,15 +283,15 @@ class Dashboard:
         """
         new_dict = {}
         for country in country_list:
-            x_time, absolute_raw, absolute_rolling, absoulte_trend, delta_raw, delta_rolling, delta_trend = \
+            x_time, absolute_raw, absolute_rolling, absolute_trend, delta_raw, delta_rolling, delta_trend = \
                 self.get_lines(df, country, self.active_window_size)
             country = replace_special_chars(country)
-            new_dict[f"{country}_{prefix}_{total_suff}_{PlotType.raw.name}"] = absolute_raw
-            new_dict[f"{country}_{prefix}_{total_suff}_{PlotType.average.name}"] = absolute_rolling
-            new_dict[f"{country}_{prefix}_{total_suff}_{PlotType.trend.name}"] = absoulte_trend
-            new_dict[f"{country}_{prefix}_{delta_suff}_{PlotType.raw.name}"] = delta_raw
-            new_dict[f"{country}_{prefix}_{delta_suff}_{PlotType.average.name}"] = delta_rolling
-            new_dict[f"{country}_{prefix}_{delta_suff}_{PlotType.trend.name}"] = delta_trend
+            new_dict[f"{country}_{prefix}_{TOTAL_SUFF}_{PlotType.raw.name}"] = absolute_raw
+            new_dict[f"{country}_{prefix}_{TOTAL_SUFF}_{PlotType.average.name}"] = absolute_rolling
+            new_dict[f"{country}_{prefix}_{TOTAL_SUFF}_{PlotType.trend.name}"] = absolute_trend
+            new_dict[f"{country}_{prefix}_{DELTA_SUFF}_{PlotType.raw.name}"] = delta_raw
+            new_dict[f"{country}_{prefix}_{DELTA_SUFF}_{PlotType.average.name}"] = delta_rolling
+            new_dict[f"{country}_{prefix}_{DELTA_SUFF}_{PlotType.trend.name}"] = delta_trend
             new_dict['x'] = x_time  # list(range(0, len(delta_raw)))
         return new_dict
 
@@ -292,21 +328,23 @@ class Dashboard:
         """
         # global active_y_axis_type, active_tab
         keys = source.data.keys()
+        if len(keys) == 0:
+            return self.get_tab_pane()
         infected_numbers_new = []
         infected_numbers_absolute = []
 
         for k in keys:
-            if f"{delta_suff}_{PlotType.raw.name}" in k:
+            if f"{DELTA_SUFF}_{PlotType.raw.name}" in k:
                 infected_numbers_new.append(max(source.data[k]))
-            elif f"{total_suff}_{PlotType.raw.name}" in k:
+            elif f"{TOTAL_SUFF}_{PlotType.raw.name}" in k:
                 infected_numbers_absolute.append(max(source.data[k]))
-        y_log_max, y_range = self.calculate_y_axis_range(infected_numbers_new)
+        y_range = self.calculate_y_axis_range(infected_numbers_new)
         p_new = figure(title=f"{self.active_prefix.name} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
-                       background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
-        y_log_max, y_range = self.calculate_y_axis_range(infected_numbers_absolute)
+                       background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type.name)
+        y_range = self.calculate_y_axis_range(infected_numbers_absolute)
         p_absolute = figure(title=f"{self.active_prefix.name} (absolute)", plot_height=400, plot_width=WIDTH,
                             y_range=y_range,
-                            background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type)
+                            background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type.name)
 
         selected_keys_absolute = []
         selected_keys_new = []
@@ -322,7 +360,7 @@ class Dashboard:
             if (plt_type == PlotType.raw and self.active_plot_raw) or \
                     (plt_type == PlotType.average and self.active_plot_average) or \
                     (plt_type == PlotType.trend and self.active_plot_trend):
-                if total_suff in vals:
+                if TOTAL_SUFF in vals:
                     selected_keys_absolute.append(vals)
                     p_absolute.line('x', vals, source=source, line_dash=line_dict[plt_type].line_dash, color=color,
                                     alpha=line_dict[plt_type].alpha, line_width=line_dict[plt_type].line_width,
@@ -343,20 +381,33 @@ class Dashboard:
         return tabs
 
     def add_figure_attributes(self, fig: figure, selected_keys: List):
-        fig.legend.location = "top_left"
-        fig.legend.click_policy = "hide"
+        """
+        add some annotations to the figure
+        :param fig:
+        :param selected_keys:
+        :return:
+        """
+        # only show legend if at least one plot is active
+        if self.active_plot_raw or  self.active_plot_average or  self.active_plot_trend:
+            fig.legend.location = "top_left"
+            fig.legend.click_policy = "hide"
         fig.xaxis.formatter = DATETIME_TICK_FORMATTER
         fig.add_tools(self.generate_tool_tips(selected_keys))
 
-    def calculate_y_axis_range(self, infected_numbers):
+    def calculate_y_axis_range(self, infected_numbers) -> (float, float):
+        """
+        calculates the needed y axis range for linear and log
+        :param infected_numbers:
+        :return:
+        """
         max_infected_new = max(infected_numbers)
         y_range = (-1, int(max_infected_new * 1.1))
         y_log_max = 1
         if y_range[1] > 0:
             y_log_max = 10 ** ceil(log10(y_range[1]))
-        if self.active_y_axis_type == Scale.LOGARITHMIC:
+        if self.active_y_axis_type == Scale.log:
             y_range = (0.1, y_log_max)
-        return y_log_max, y_range
+        return y_range
 
     def get_tab_pane(self):
         """
@@ -385,30 +436,39 @@ class Dashboard:
         self.world_circle_source = ColumnDataSource(
             dict(x=x_coord, y=y_coord, num=self.active_df['total'],
                  sizes=self.active_df['total'].apply(lambda d: ceil(log(d) * 4) if d > 1 else 1),
-                 country=self.active_df[ColumnNames.country.name]))
+                 country=self.active_df[ColumnNames.country.value]))
         world_map.circle(x='x', y='y', size='sizes', source=self.world_circle_source, fill_color="red", fill_alpha=0.8)
         return world_map
 
     def update_world_map(self):
+        """
+        updates the data source of world map to switch between infected, deaths, recovered
+        :return:
+        """
         self.world_circle_source.data = dict(x=x_coord, y=y_coord, num=self.active_df['total'],
                                              sizes=self.active_df['total'].apply(
                                                  lambda d: ceil(log(d) * 4) if d > 1 else 1),
-                                             country=self.active_df[ColumnNames.country.name])
+                                             country=self.active_df[ColumnNames.country.value])
 
-    def update_data(self, attrname, old, new):
+    def update_data(self, attr, old, new):
         """
-        change the
-        :param attrname:
+        repaints the plots with an updated country list
+        :param attr:
         :param old:
         :param new:
         :return:
         """
+        _ = (attr, old)
         self.country_list = new
         self.source.data = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix.name)
         self.layout.set_select(dict(name=TAB_PANE), dict(tabs=self.generate_plot(self.source).tabs))
 
     def update_capita(self, new):
-        # callback to change between total and per capita numbers
+        """
+        callback to change between total and per capita numbers
+        :param new: 0 if total, 1 if per capita
+        :return:
+        """
         if new == 0:
             self.active_per_capita = False  # 'total'
         else:
@@ -420,13 +480,10 @@ class Dashboard:
     def update_scale_button(self, new):
         """
         changes between log and linear y axis
-        :param new:
+        :param new: 0 if log y scale, 1 for linear y scale
         :return:
         """
-        if new == 0:
-            self.active_y_axis_type = Scale.LOGARITHMIC
-        else:
-            self.active_y_axis_type = Scale.LINEAR
+        self.active_y_axis_type = Scale(new)
         self.update_data('', self.country_list, self.country_list)
 
     def update_average_button(self, new):
@@ -452,15 +509,14 @@ class Dashboard:
         if 2 in new:
             self.active_plot_trend = True
         # redraw
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('',  self.country_list,  self.country_list)
 
     def update_data_frame(self, new):
         """
         updates what dataframe is shown in the plots
-        :param new: the new datafrome to be shown out of['confirmed','deaths','recovered']
+        :param new: the new dataframe to be shown out of['confirmed','deaths','recovered']
         :return:
         """
-
         if new == int(Prefix.confirmed):
             self.active_df = df_confirmed
             self.active_prefix = Prefix.confirmed
@@ -483,8 +539,9 @@ class Dashboard:
         :param new: new sliding window size
         :return: None
         """
+        _ = (attr, old)  # unused
         self.active_window_size = new
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('',  self.country_list,  self.country_list)
 
     def update_tab(self, attr, old, new):
         """
@@ -496,6 +553,7 @@ class Dashboard:
         :param new:
         :return:
         """
+        _ = (attr, old)  # unused
         self.active_tab = new
 
     def generate_table_new(self):
@@ -512,14 +570,14 @@ class Dashboard:
 
         current = self.active_df.sort_values(by=[column_avg], ascending=False).head(-1)
         self.top_new_source.data = {
-            'name': current[ColumnNames.country.name],
+            'name': current[ColumnNames.country.value],
             'number_rolling': current[column_avg],
             'number_daily': current[column_last_day],
         }
 
     def generate_table_cumulative(self):
         """
-        generates tables for cumulutive numbers
+        generates tables for cumulative numbers
         :return:
         """
         sort_column = "total"
@@ -527,7 +585,7 @@ class Dashboard:
             sort_column = "total_per_capita"
         current = self.active_df.sort_values(by=[sort_column], ascending=False).head(-1)
         self.top_total_source.data = {
-            'name': current[ColumnNames.country.name],
+            'name': current[ColumnNames.country.value],
             'number': current[sort_column],
         }
 
@@ -547,7 +605,7 @@ class Dashboard:
             labels=["Total Cases", "Cases per Million"], active=0 if not self.active_per_capita else 1)
         radio_button_group_per_capita.on_click(self.update_capita)
         radio_button_group_scale = RadioButtonGroup(
-            labels=["Logarithmic", "Linear"], active=1 if self.active_y_axis_type == Scale.LINEAR else 0)
+            labels=[Scale.log.name.title(), Scale.linear.name.title()], active=self.active_y_axis_type.value)
         radio_button_group_scale.on_click(self.update_scale_button)
         radio_button_group_df = RadioButtonGroup(
             labels=[Prefix.confirmed.name.title(), Prefix.deaths.name.title(), Prefix.recovered.name.title(), ],
@@ -650,14 +708,14 @@ def parse_arguments(arguments):
     active_plot_trend = parse_bool(arguments, 'plot_trend')
     active_average = Average.median if 'average' in arguments and to_basestring(
         arguments['average'][0]).lower() == 'median' else Average.mean
-    active_y_axis_type = Scale.LOGARITHMIC if 'scale' in arguments and to_basestring(
-        arguments['scale'][0]).lower() == 'log' else Scale.LINEAR
+    active_y_axis_type = Scale.log if 'scale' in arguments and to_basestring(
+        arguments['scale'][0]).lower() == Scale.log.name else Scale.linear
     active_prefix = Prefix.confirmed
     if 'data' in arguments:
         val = to_basestring(arguments['data'][0]).lower()
         if val in Prefix.deaths.name:
             active_prefix = Prefix.deaths
-        elif val in Prefix.deaths.recovereds:
+        elif val in Prefix.recovered.name:
             active_prefix = Prefix.recovered
     return country_list, active_per_capita, active_window_size, active_plot_raw, active_plot_average, \
         active_plot_trend, active_average, active_y_axis_type, active_prefix
