@@ -67,7 +67,6 @@ class Scale(IntEnum):
     linear = 1
 
 
-
 class Prefix(IntEnum):
     """
     enum for data source
@@ -131,6 +130,7 @@ def create_additional_columns(case_col: List, df: pd.DataFrame, df_pop: pd.DataF
 
 
 case_columns, df_coord, df_confirmed, df_deaths, df_recovered, df_population = load_data_frames()
+x_date = [pd.to_datetime(case_columns[0]) + timedelta(days=x) for x in range(0, len(case_columns))]
 
 # Transform lat and long (World Geodetic System, GPS, EPSG:4326) to x and y  (Pseudo-Mercator, "epsg:3857")
 transformer = Transformer.from_crs("epsg:4326", "epsg:3857")
@@ -177,7 +177,6 @@ color_dict = dict(zip(unique_countries_wo_special_chars,
                       )
                   )
 
-
 line_attr = namedtuple('line_attr', ['line_dash', 'alpha', 'line_width'])
 line_dict = {PlotType.raw: line_attr('dashed', 0.5, 1.5), PlotType.average: line_attr('solid', 1, 1.5),
              PlotType.trend: line_attr('solid', 0.9, 5)}
@@ -187,6 +186,7 @@ class Dashboard:
     """
     main dashboard class with class members for dashboard global variables which can be changed by callbacks
     """
+
     def __init__(self,
                  active_average: Average = Average.mean,
                  active_y_axis_type: Scale = Scale.linear,
@@ -251,7 +251,6 @@ class Dashboard:
         avg_fun = np.mean  # lambda x: x.mean()
         if self.active_average == Average.median:
             avg_fun = np.median  # lambda x: np.median(x)
-        x_date = [pd.to_datetime(case_columns[0]) + timedelta(days=x) for x in range(0, len(case_columns))]
         df_sub = df[df[ColumnNames.country.value] == country]
         absolute = df_sub[case_columns].sum(axis=0).to_frame(name='sum')
         absolute_rolling = absolute.rolling(window=rolling_window, axis=0).apply(avg_fun).fillna(0)
@@ -265,13 +264,12 @@ class Dashboard:
                         [ColumnNames.population.value])
             pop /= 1e6
             factor = 1 / pop
-        return x_date, \
-            np.ravel(absolute.values) * factor, \
-            np.ravel(absolute_rolling.values) * factor, \
-            absolute_trend * factor, \
-            np.ravel(new_cases.values) * factor, \
-            np.ravel(new_cases_rolling.values * factor), \
-            new_cases_trend * factor
+        return np.ravel(absolute.values) * factor, \
+               np.ravel(absolute_rolling.values) * factor, \
+               absolute_trend * factor, \
+               np.ravel(new_cases.values) * factor, \
+               np.ravel(new_cases_rolling.values * factor), \
+               new_cases_trend * factor
 
     def get_dict_from_df(self, df: pd.DataFrame, country_list: List[str], prefix: str):
         """
@@ -283,7 +281,7 @@ class Dashboard:
         """
         new_dict = {}
         for country in country_list:
-            x_time, absolute_raw, absolute_rolling, absolute_trend, delta_raw, delta_rolling, delta_trend = \
+            absolute_raw, absolute_rolling, absolute_trend, delta_raw, delta_rolling, delta_trend = \
                 self.get_lines(df, country, self.active_window_size)
             country = replace_special_chars(country)
             new_dict[f"{country}_{prefix}_{TOTAL_SUFF}_{PlotType.raw.name}"] = absolute_raw
@@ -292,7 +290,7 @@ class Dashboard:
             new_dict[f"{country}_{prefix}_{DELTA_SUFF}_{PlotType.raw.name}"] = delta_raw
             new_dict[f"{country}_{prefix}_{DELTA_SUFF}_{PlotType.average.name}"] = delta_rolling
             new_dict[f"{country}_{prefix}_{DELTA_SUFF}_{PlotType.trend.name}"] = delta_trend
-            new_dict['x'] = x_time  # list(range(0, len(delta_raw)))
+            new_dict['x'] = x_date  # list(range(0, len(delta_raw)))
         return new_dict
 
     @staticmethod
@@ -388,7 +386,7 @@ class Dashboard:
         :return:
         """
         # only show legend if at least one plot is active
-        if self.active_plot_raw or  self.active_plot_average or  self.active_plot_trend:
+        if self.active_plot_raw or self.active_plot_average or self.active_plot_trend:
             fig.legend.location = "top_left"
             fig.legend.click_policy = "hide"
         fig.xaxis.formatter = DATETIME_TICK_FORMATTER
@@ -509,7 +507,7 @@ class Dashboard:
         if 2 in new:
             self.active_plot_trend = True
         # redraw
-        self.update_data('',  self.country_list,  self.country_list)
+        self.update_data('', self.country_list, self.country_list)
 
     def update_data_frame(self, new):
         """
@@ -541,7 +539,7 @@ class Dashboard:
         """
         _ = (attr, old)  # unused
         self.active_window_size = new
-        self.update_data('',  self.country_list,  self.country_list)
+        self.update_data('', self.country_list, self.country_list)
 
     def update_tab(self, attr, old, new):
         """
@@ -718,13 +716,13 @@ def parse_arguments(arguments):
         elif val in Prefix.recovered.name:
             active_prefix = Prefix.recovered
     return country_list, active_per_capita, active_window_size, active_plot_raw, active_plot_average, \
-        active_plot_trend, active_average, active_y_axis_type, active_prefix
+           active_plot_trend, active_average, active_y_axis_type, active_prefix
 
 
 args = curdoc().session_context.request.arguments
 
 country_list_, active_per_capita_, active_window_size_, active_plot_raw_, active_plot_average_, \
-    active_plot_trend_, active_average_, active_y_axis_type_, active_prefix_ = parse_arguments(args)
+active_plot_trend_, active_average_, active_y_axis_type_, active_prefix_ = parse_arguments(args)
 
 dash = Dashboard(country_list=country_list_,
                  active_per_capita=active_per_capita_,
