@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import colorcet as cc
 from bokeh.io import curdoc
-from bokeh.layouts import column, row
+from bokeh.layouts import column, row, layout
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button, DatetimeTickFormatter, HoverTool, \
     NumberFormatter
 from bokeh.models.widgets import Panel, Tabs, RadioButtonGroup, Div, CheckboxButtonGroup, TableColumn, DataTable
@@ -622,7 +622,7 @@ class Dashboard:
         plots_button_group.on_click(self.update_shown_plots)
 
         world_map = self.create_world_map()
-        div = Div(
+        footer = Div(
             text="""Covid-19 Dashboard created by Andreas Weichslgartner in April 2020 with python, bokeh, pandas, 
             numpy, pyproj, and colorcet. Source Code can be found at 
             <a href="https://github.com/weichslgartner/covid_dashboard/">Github</a>.""",
@@ -649,14 +649,16 @@ class Dashboard:
             align='center')
         top_top_14_cum = DataTable(source=self.top_total_source, name="Highest confirmed(cumulative)", columns=columns,
                                    width=300, height=380)
-        self.layout = column(
+        self.layout = layout([
             row(column(tab_plot, world_map),
                 column(top_top_14_new_header, top_top_14_new, top_top_14_cum_header, top_top_14_cum),
                 column(refresh_button, radio_button_group_df, radio_button_group_per_capita, plots_button_group,
                        radio_button_group_scale, slider, radio_button_average,
                        multi_select),
-                width=800),
-            div)
+
+                ),
+            row(footer)
+        ])
 
         curdoc().add_root(self.layout)
         curdoc().title = "Bokeh Covid-19 Dashboard"
@@ -686,10 +688,10 @@ def parse_int(arguments: dict, key: str, default_val: int = 7) -> int:
     return int(arguments[key][0]) if key in args else default_val
 
 
-def parse_arguments(arguments):
+def parse_arguments(arguments: dict):
     """
     parse get arguments of rest api
-    :param arguments:
+    :param arguments: as the dict given from tornardo
     :return:
     """
     arguments = {k.lower(): v for k, v in arguments.items()}
