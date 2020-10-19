@@ -5,7 +5,7 @@ Little project to play with bokeh creating customizable dashboard (changing scal
 https://covid-19-bokeh-dashboard.herokuapp.com/dashboard
 
 ## Run Locally
-git clone https://github.com/weichslgartner/covid_dashboard.git
+git clone https://github.com/weichslgartner/covid_dashboard.git  
 cd covid_dashboard
 ### Using Python Virtual env (Option 1)
 python -m venv c_dashboard
