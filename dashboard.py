@@ -12,6 +12,7 @@ from typing import List
 import numpy as np
 import pandas as pd
 import colorcet as cc
+import requests
 from bokeh.io import curdoc
 from bokeh.layouts import column, row, layout
 from bokeh.models import ColumnDataSource, MultiSelect, Slider, Button, DatetimeTickFormatter, HoverTool, \
@@ -40,6 +41,10 @@ DEATHS_CSV = 'time_series_covid19_deaths_global.csv'
 RECOVERED_CSV = 'time_series_covid19_recovered_global.csv'
 POPULATION_CSV = 'data/population.csv'
 
+DASHBOARD_URL = 'https://covid-19-bokeh-dashboard.herokuapp.com/dashboard'
+
+
+# DASHBOARD_URL = 'http://localhost:5006/dashboard'
 
 class ColumnNames(str, Enum):
     """
@@ -83,6 +88,14 @@ class PlotType(IntEnum):
     raw = 0
     average = 1
     trend = 2
+
+
+class TabType(IntEnum):
+    """
+    enum for active tab
+    """
+    daily = 0
+    cumulative = 1
 
 
 def load_data_frames():
@@ -191,7 +204,7 @@ class Dashboard:
                  active_average: Average = Average.mean,
                  active_y_axis_type: Scale = Scale.linear,
                  active_prefix=Prefix.confirmed,  # 'confirmed',
-                 active_tab=0,
+                 active_tab=TabType.daily,
                  active_window_size=7,
                  active_per_capita=False,
                  active_plot_raw=True,
@@ -215,13 +228,14 @@ class Dashboard:
         self.top_new_source = ColumnDataSource(data=dict())
         self.top_total_source = ColumnDataSource(data=dict())
         self.world_circle_source = ColumnDataSource(data=dict())
-        self.country_list = country_list
-        self.active_prefix = active_prefix
-        self.active_df = df_confirmed
-        if self.active_prefix == Prefix.deaths:
-            self.active_df = df_deaths
-        elif self.active_prefix == Prefix.recovered:
-            self.active_df = df_recovered
+        self.active_country_list = country_list
+        self.active_case_type = active_prefix
+        self.current_df = df_confirmed
+        self.url = self.export_url()
+        if self.active_case_type == Prefix.deaths:
+            self.current_df = df_deaths
+        elif self.active_case_type == Prefix.recovered:
+            self.current_df = df_recovered
 
     @staticmethod
     def calc_trend(y: pd.Series, window_size: int):
@@ -264,12 +278,11 @@ class Dashboard:
                         [ColumnNames.population.value])
             pop /= 1e6
             factor = 1 / pop
-        return np.ravel(absolute.values) * factor, \
-               np.ravel(absolute_rolling.values) * factor, \
-               absolute_trend * factor, \
-               np.ravel(new_cases.values) * factor, \
-               np.ravel(new_cases_rolling.values * factor), \
-               new_cases_trend * factor
+        return np.ravel(absolute.values) * factor, np.ravel(absolute_rolling.values) * factor, \
+            absolute_trend * factor, \
+            np.ravel(new_cases.values) * factor, \
+            np.ravel(new_cases_rolling.values * factor), \
+            new_cases_trend * factor
 
     def get_dict_from_df(self, df: pd.DataFrame, country_list: List[str], prefix: str):
         """
@@ -313,7 +326,7 @@ class Dashboard:
         initialize the data source with Germany
         :return:
         """
-        new_dict = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix.name)
+        new_dict = self.get_dict_from_df(self.current_df, self.active_country_list, self.active_case_type.name)
         new_source = ColumnDataSource(data=new_dict)
         return new_source
 
@@ -337,10 +350,10 @@ class Dashboard:
             elif f"{TOTAL_SUFF}_{PlotType.raw.name}" in k:
                 infected_numbers_absolute.append(max(source.data[k]))
         y_range = self.calculate_y_axis_range(infected_numbers_new)
-        p_new = figure(title=f"{self.active_prefix.name} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
+        p_new = figure(title=f"{self.active_case_type.name} (new)", plot_height=400, plot_width=WIDTH, y_range=y_range,
                        background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type.name)
         y_range = self.calculate_y_axis_range(infected_numbers_absolute)
-        p_absolute = figure(title=f"{self.active_prefix.name} (absolute)", plot_height=400, plot_width=WIDTH,
+        p_absolute = figure(title=f"{self.active_case_type.name} (absolute)", plot_height=400, plot_width=WIDTH,
                             y_range=y_range,
                             background_fill_color=BACKGROUND_COLOR, y_axis_type=self.active_y_axis_type.name)
 
@@ -371,11 +384,11 @@ class Dashboard:
         self.add_figure_attributes(p_absolute, selected_keys_absolute)
         self.add_figure_attributes(p_new, selected_keys_new)
 
-        tab1 = Panel(child=p_new, title=f"{self.active_prefix.name} (daily)")
-        tab2 = Panel(child=p_absolute, title=f"{self.active_prefix.name} (cumulative)")
+        tab1 = Panel(child=p_new, title=f"{self.active_case_type.name} (daily)")
+        tab2 = Panel(child=p_absolute, title=f"{self.active_case_type.name} (cumulative)")
         tabs = Tabs(tabs=[tab1, tab2], name=TAB_PANE)
-        if self.layout is not None:
-            tabs.active = self.get_tab_pane().active
+        # if self.layout is not None:
+        tabs.active = self.active_tab  # self.get_tab_pane().active
         return tabs
 
     def add_figure_attributes(self, fig: figure, selected_keys: List):
@@ -432,9 +445,9 @@ class Dashboard:
         # world_map.axis.visible = False
         world_map.add_tile(tile_provider)
         self.world_circle_source = ColumnDataSource(
-            dict(x=x_coord, y=y_coord, num=self.active_df['total'],
-                 sizes=self.active_df['total'].apply(lambda d: ceil(log(d) * 4) if d > 1 else 1),
-                 country=self.active_df[ColumnNames.country.value]))
+            dict(x=x_coord, y=y_coord, num=self.current_df['total'],
+                 sizes=self.current_df['total'].apply(lambda d: ceil(log(d) * 4) if d > 1 else 1),
+                 country=self.current_df[ColumnNames.country.value]))
         world_map.circle(x='x', y='y', size='sizes', source=self.world_circle_source, fill_color="red", fill_alpha=0.8)
         return world_map
 
@@ -443,10 +456,10 @@ class Dashboard:
         updates the data source of world map to switch between infected, deaths, recovered
         :return:
         """
-        self.world_circle_source.data = dict(x=x_coord, y=y_coord, num=self.active_df['total'],
-                                             sizes=self.active_df['total'].apply(
+        self.world_circle_source.data = dict(x=x_coord, y=y_coord, num=self.current_df['total'],
+                                             sizes=self.current_df['total'].apply(
                                                  lambda d: ceil(log(d) * 4) if d > 1 else 1),
-                                             country=self.active_df[ColumnNames.country.value])
+                                             country=self.current_df[ColumnNames.country.value])
 
     def update_data(self, attr, old, new):
         """
@@ -457,8 +470,9 @@ class Dashboard:
         :return:
         """
         _ = (attr, old)
-        self.country_list = new
-        self.source.data = self.get_dict_from_df(self.active_df, self.country_list, self.active_prefix.name)
+        self.active_country_list = new
+        self.source.data = self.get_dict_from_df(self.current_df, self.active_country_list, self.active_case_type.name)
+        self.url = self.export_url()
         self.layout.set_select(dict(name=TAB_PANE), dict(tabs=self.generate_plot(self.source).tabs))
 
     def update_capita(self, new):
@@ -473,7 +487,7 @@ class Dashboard:
             self.active_per_capita = True  # 'per_capita'
         self.generate_table_new()
         self.generate_table_cumulative()
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('', self.active_country_list, self.active_country_list)
 
     def update_scale_button(self, new):
         """
@@ -482,7 +496,7 @@ class Dashboard:
         :return:
         """
         self.active_y_axis_type = Scale(new)
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('', self.active_country_list, self.active_country_list)
 
     def update_average_button(self, new):
         """
@@ -491,7 +505,7 @@ class Dashboard:
         :return:
         """
         self.active_average = Average(new)
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('', self.active_country_list, self.active_country_list)
 
     def update_shown_plots(self, new):
         """
@@ -507,7 +521,7 @@ class Dashboard:
         if 2 in new:
             self.active_plot_trend = True
         # redraw
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('', self.active_country_list, self.active_country_list)
 
     def update_data_frame(self, new):
         """
@@ -516,18 +530,18 @@ class Dashboard:
         :return:
         """
         if new == int(Prefix.confirmed):
-            self.active_df = df_confirmed
-            self.active_prefix = Prefix.confirmed
+            self.current_df = df_confirmed
+            self.active_case_type = Prefix.confirmed
         elif new == int(Prefix.deaths):
-            self.active_df = df_deaths
-            self.active_prefix = Prefix.deaths
+            self.current_df = df_deaths
+            self.active_case_type = Prefix.deaths
         else:
-            self.active_df = df_recovered
-            self.active_prefix = Prefix.recovered
+            self.current_df = df_recovered
+            self.active_case_type = Prefix.recovered
         self.update_world_map()
         self.generate_table_cumulative()
         self.generate_table_new()
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('', self.active_country_list, self.active_country_list)
 
     def update_window_size(self, attr, old, new):
         """
@@ -539,7 +553,7 @@ class Dashboard:
         """
         _ = (attr, old)  # unused
         self.active_window_size = new
-        self.update_data('', self.country_list, self.country_list)
+        self.update_data('', self.active_country_list, self.active_country_list)
 
     def update_tab(self, attr, old, new):
         """
@@ -552,7 +566,22 @@ class Dashboard:
         :return:
         """
         _ = (attr, old)  # unused
-        self.active_tab = new
+        self.active_tab = TabType(new)
+
+    def export_url(self):
+        """
+        generates a url for the current plot
+        """
+        params = {key.replace("active_", ""): value for key, value in self.__dict__.items() if 'active' in key}
+        for key, value in params.items():
+            if isinstance(value, Enum):
+                params[key] = value.name
+        self.url = requests.Request('GET', DASHBOARD_URL,
+                                    params=params).prepare().url
+        if self.layout is not None:
+            self.layout.set_select(dict(name="URL"),
+                                   dict(text=fr'Link <a target="_blank" href="{self.url}">Link to this Plot</a>.'))
+        return self.url
 
     def generate_table_new(self):
         """
@@ -566,7 +595,7 @@ class Dashboard:
             column_avg = "7_day_average_new_per_capita"
             column_last_day = "last_day_per_capita"
 
-        current = self.active_df.sort_values(by=[column_avg], ascending=False).head(-1)
+        current = self.current_df.sort_values(by=[column_avg], ascending=False).head(-1)
         self.top_new_source.data = {
             'name': current[ColumnNames.country.value],
             'number_rolling': current[column_avg],
@@ -581,7 +610,7 @@ class Dashboard:
         sort_column = "total"
         if self.active_per_capita:
             sort_column = "total_per_capita"
-        current = self.active_df.sort_values(by=[sort_column], ascending=False).head(-1)
+        current = self.current_df.sort_values(by=[sort_column], ascending=False).head(-1)
         self.top_total_source.data = {
             'name': current[ColumnNames.country.value],
             'number': current[sort_column],
@@ -595,7 +624,7 @@ class Dashboard:
         """
         self.source = self.generate_source()
         tab_plot = self.generate_plot(self.source)
-        multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=self.country_list,
+        multi_select = MultiSelect(title="Option (Multiselect Ctrl+Click):", value=self.active_country_list,
                                    options=countries, height=500)
         multi_select.on_change('value', self.update_data)
         tab_plot.on_change('active', self.update_tab)
@@ -607,10 +636,12 @@ class Dashboard:
         radio_button_group_scale.on_click(self.update_scale_button)
         radio_button_group_df = RadioButtonGroup(
             labels=[Prefix.confirmed.name.title(), Prefix.deaths.name.title(), Prefix.recovered.name.title(), ],
-            active=int(self.active_prefix))
+            active=int(self.active_case_type))
         radio_button_group_df.on_click(self.update_data_frame)
-        refresh_button = Button(label="Refresh Data", button_type="default")
+        refresh_button = Button(label="Refresh Data", button_type="default", width=150)
         refresh_button.on_click(load_data_frames)
+        export_button = Button(label="Export Url", button_type="default", width=150)
+        export_button.on_click(self.export_url)
         slider = Slider(start=1, end=30, value=self.active_window_size, step=1, title="Window Size for rolling average")
         slider.on_change('value', self.update_window_size)
         radio_button_average = RadioButtonGroup(
@@ -622,6 +653,9 @@ class Dashboard:
         plots_button_group.on_click(self.update_shown_plots)
 
         world_map = self.create_world_map()
+        link_div = Div(name="URL",
+                       text=fr'Link <a target="_blank" href="{self.url}">Link to this Plot</a>.',
+                       width=300, height=10, align='center')
         footer = Div(
             text="""Covid-19 Dashboard created by Andreas Weichslgartner in April 2020 with python, bokeh, pandas, 
             numpy, pyproj, and colorcet. Source Code can be found at 
@@ -652,7 +686,8 @@ class Dashboard:
         self.layout = layout([
             row(column(tab_plot, world_map),
                 column(top_top_14_new_header, top_top_14_new, top_top_14_cum_header, top_top_14_cum),
-                column(refresh_button, radio_button_group_df, radio_button_group_per_capita, plots_button_group,
+                column(link_div, row(refresh_button, export_button), radio_button_group_df,
+                       radio_button_group_per_capita, plots_button_group,
                        radio_button_group_scale, slider, radio_button_average,
                        multi_select),
 
@@ -695,43 +730,48 @@ def parse_arguments(arguments: dict):
     :return:
     """
     arguments = {k.lower(): v for k, v in arguments.items()}
-    country_list = ['Germany']
+    # country_list = ['Germany']
+    active_dict = {'country_list': ['Germany']}
     if 'country' in arguments:
-        country_list = [countries_lower_dict[to_basestring(c).lower()] for c in arguments['country'] if
-                        to_basestring(c).lower() in countries_lower_dict.keys()]
-    if len(country_list) == 0:
-        country_list = ['Germany']
-    active_per_capita = parse_bool(arguments, 'per_capita', False)
-    active_window_size = parse_int(arguments, 'window_size', 7)
-    active_plot_raw = parse_bool(arguments, 'plot_raw')
-    active_plot_average = parse_bool(arguments, 'plot_average')
-    active_plot_trend = parse_bool(arguments, 'plot_trend')
-    active_average = Average.median if 'average' in arguments and to_basestring(
-        arguments['average'][0]).lower() == 'median' else Average.mean
-    active_y_axis_type = Scale.log if 'scale' in arguments and to_basestring(
-        arguments['scale'][0]).lower() == Scale.log.name else Scale.linear
-    active_prefix = Prefix.confirmed
+        arguments['country_list'] = arguments['country']
+    if 'country_list' in arguments:
+        active_dict['country_list'] = [countries_lower_dict[to_basestring(c).lower()] for c in arguments['country_list']
+                                       if
+                                       to_basestring(c).lower() in countries_lower_dict.keys()]
+    if len(active_dict['country_list']) == 0:
+        active_dict['country_list'] = ['Germany']
+    active_dict['per_capita'] = parse_bool(arguments, 'per_capita', False)
+    active_dict['window_size'] = parse_int(arguments, 'window_size', 7)
+    active_dict['plot_raw'] = parse_bool(arguments, 'plot_raw')
+    active_dict['plot_average'] = parse_bool(arguments, 'plot_average')
+    active_dict['plot_trend'] = parse_bool(arguments, 'plot_trend')
+    active_dict['average'] = Average.median if 'average' in arguments and to_basestring(
+        arguments['average'][0]).lower() == Average.median.name else Average.mean
+    active_dict['y_axis_type'] = Scale.log if 'y_axis_type' in arguments and to_basestring(
+        arguments['y_axis_type'][0]).lower() == Scale.log.name else Scale.linear
+    active_dict['tab'] = TabType.cumulative if 'tab' in arguments and to_basestring(
+        arguments['tab'][0]).lower() == TabType.cumulative.name else TabType.daily
+    active_dict['case_type'] = Prefix.confirmed
     if 'data' in arguments:
-        val = to_basestring(arguments['data'][0]).lower()
+        val = to_basestring(arguments['case_type'][0]).lower()
         if val in Prefix.deaths.name:
-            active_prefix = Prefix.deaths
+            active_dict['case_type'] = Prefix.deaths
         elif val in Prefix.recovered.name:
-            active_prefix = Prefix.recovered
-    return country_list, active_per_capita, active_window_size, active_plot_raw, active_plot_average, \
-           active_plot_trend, active_average, active_y_axis_type, active_prefix
+            active_dict['case_type'] = Prefix.recovered
+    return active_dict
 
 
 args = curdoc().session_context.request.arguments
 
-country_list_, active_per_capita_, active_window_size_, active_plot_raw_, active_plot_average_, \
-active_plot_trend_, active_average_, active_y_axis_type_, active_prefix_ = parse_arguments(args)
+parsed_dict = parse_arguments(args)
 
-dash = Dashboard(country_list=country_list_,
-                 active_per_capita=active_per_capita_,
-                 active_window_size=active_window_size_,
-                 active_plot_raw=active_plot_raw_,
-                 active_plot_average=active_plot_average_,
-                 active_plot_trend=active_plot_trend_,
-                 active_y_axis_type=active_y_axis_type_,
-                 active_prefix=active_prefix_)
+dash = Dashboard(country_list=parsed_dict['country_list'],
+                 active_per_capita=parsed_dict['per_capita'],
+                 active_window_size=parsed_dict['window_size'],
+                 active_plot_raw=parsed_dict['plot_raw'],
+                 active_plot_average=parsed_dict['plot_average'],
+                 active_plot_trend=parsed_dict['plot_trend'],
+                 active_y_axis_type=parsed_dict['y_axis_type'],
+                 active_tab=parsed_dict['tab'],
+                 active_prefix=parsed_dict['case_type'])
 dash.do_layout()

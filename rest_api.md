@@ -19,7 +19,7 @@ plot trendline (linear interpolation of last window size)
 average: str ['mean', 'median']
 function used for calucalting average over window 
 
-scale: str ['linear', 'log]
+y_axis_scale: str ['linear', 'log']
 scale used for y axis
 
 data: str ['confirmed', 'deaths', recovered]
