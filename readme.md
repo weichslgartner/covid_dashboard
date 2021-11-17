@@ -1,6 +1,9 @@
 # Bokeh Covid Dashboard
 Little project to play with bokeh creating customizable dashboard (changing scale, select multiple countries etc).
-.
+
+## Detailed Information
+A writeup with more informtion can be found on my [blog](https://weichslgartner.github.io/dashboard/).
+
 ## Running Version (online)
 https://covid-19-bokeh-dashboard.herokuapp.com/dashboard
 
