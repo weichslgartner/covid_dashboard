@@ -7,7 +7,7 @@ certifi==2022.12.7
 cffi==1.14.0
 chardet==3.0.4
 colorcet==2.0.2
-cryptography==3.3.2
+cryptography==39.0.1
 cycler==0.10.0
 decorator==4.4.2
 defusedxml==0.6.0
