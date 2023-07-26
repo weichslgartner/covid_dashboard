@@ -3,7 +3,7 @@ attrs==19.3.0
 backcall==0.1.0
 bleach==3.3.0
 bokeh==2.2.1
-certifi==2022.12.7
+certifi==2023.7.22
 cffi==1.14.0
 chardet==3.0.4
 colorcet==2.0.2
